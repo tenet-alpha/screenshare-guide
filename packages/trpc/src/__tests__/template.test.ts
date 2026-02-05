@@ -72,7 +72,7 @@ describe("Template Router", () => {
     });
 
     it("should allow optional description", () => {
-      const input = {
+      const input: { name: string; steps: typeof sampleTemplateSteps; description?: string } = {
         name: "No Description Template",
         steps: sampleTemplateSteps,
       };
@@ -81,7 +81,7 @@ describe("Template Router", () => {
     });
 
     it("should allow optional hints in steps", () => {
-      const stepWithoutHints = {
+      const stepWithoutHints: { instruction: string; successCriteria: string; hints?: string[] } = {
         instruction: "Do this",
         successCriteria: "This is done",
       };

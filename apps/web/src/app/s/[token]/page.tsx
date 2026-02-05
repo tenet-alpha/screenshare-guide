@@ -13,12 +13,7 @@ export default function SessionPage() {
     data: session,
     isLoading,
     error,
-  } = trpc.session.getByToken.useQuery(
-    { token },
-    {
-      retry: false,
-    }
-  );
+  } = trpc.session.getByToken.useQuery({ token });
 
   if (isLoading) {
     return (

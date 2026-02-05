@@ -50,13 +50,19 @@ export function createMockTemplate(overrides: Partial<typeof sampleTemplate> = {
   };
 }
 
+type SessionStatus = "pending" | "active" | "completed" | "expired";
+
 export function createMockSession(overrides: Record<string, any> = {}) {
   return {
     token: "abc123xyz",
     templateId: "template-uuid-1",
-    status: "pending",
+    status: "pending" as SessionStatus,
     currentStep: 0,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    usedAt: null as Date | null,
+    metadata: {} as Record<string, any>,
+    createdAt: new Date(),
+    updatedAt: new Date(),
     ...overrides,
   };
 }

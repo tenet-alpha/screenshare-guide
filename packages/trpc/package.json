@@ -15,6 +15,8 @@
     "@trpc/server": "^10.45.0",
     "@trpc/client": "^10.45.0",
     "@screenshare-guide/db": "workspace:*",
+    "drizzle-orm": "^0.29.3",
+    "nanoid": "^5.0.4",
     "superjson": "^2.2.1",
     "zod": "^3.22.4"
   },
