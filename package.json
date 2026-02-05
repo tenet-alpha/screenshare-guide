@@ -1,0 +1,20 @@
+{
+  "name": "screenshare-guide",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:server": "bun run --filter @screenshare-guide/server dev",
+    "dev:web": "bun run --filter @screenshare-guide/web dev",
+    "build": "bun run --filter '*' build",
+    "db:generate": "bun run --filter @screenshare-guide/db generate",
+    "db:migrate": "bun run --filter @screenshare-guide/db migrate",
+    "db:push": "bun run --filter @screenshare-guide/db push",
+    "db:studio": "bun run --filter @screenshare-guide/db studio",
+    "test": "bun run --filter '*' test",
+    "typecheck": "bun run --filter '*' typecheck"
+  }
+}
