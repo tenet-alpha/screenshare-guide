@@ -92,11 +92,12 @@ export const websocketHandler = new Elysia()
 
         const steps = template.steps as SessionState["steps"];
 
-        // Initialize session state
+        // Initialize session state (clamp currentStep to valid range)
+        const clampedStep = Math.min(session.current_step, steps.length - 1);
         const state: SessionState = {
           sessionId: session.id,
           templateId: session.template_id,
-          currentStep: session.current_step,
+          currentStep: Math.max(0, clampedStep),
           totalSteps: steps.length,
           steps,
           status: "waiting",
@@ -282,7 +283,11 @@ async function handleFrame(
 
           log.info("Session completed", { sessionId: state.sessionId });
 
-          ws.send(JSON.stringify({ type: "completed", message: "All steps completed!" }));
+          ws.send(JSON.stringify({
+            type: "completed",
+            message: "All steps completed!",
+            extractedData: analysis.extractedData || [],
+          }));
           const completionMsg = extractedSummary
             ? `I've captured everything. ${extractedSummary}. Great job — all steps are complete!`
             : "Great job! You've completed all the steps.";

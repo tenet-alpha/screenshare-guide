@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { ProgressIndicator } from "./ProgressIndicator";
 import { AudioPlayer } from "./AudioPlayer";
 
 interface TemplateStep {
@@ -34,13 +33,6 @@ interface VerifiedStep {
   data: ExtractedDataItem[];
 }
 
-interface AnalysisResult {
-  description: string;
-  matchesSuccess: boolean;
-  confidence: number;
-  extractedData?: ExtractedDataItem[];
-}
-
 function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={cn("w-5 h-5", className)} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,10 +43,10 @@ function CheckIcon({ className }: { className?: string }) {
 
 export function ScreenShareSession({ token, sessionId, template, initialStep }: Props) {
   const [status, setStatus] = useState<SessionStatus>("idle");
-  const [currentStep, setCurrentStep] = useState(initialStep);
+  const [currentStep, setCurrentStep] = useState(Math.min(initialStep, template.steps.length - 1));
   const [instruction, setInstruction] = useState<string>("");
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [verifiedSteps, setVerifiedSteps] = useState<VerifiedStep[]>([]);
+  const [collectedData, setCollectedData] = useState<ExtractedDataItem[]>([]);
   const [audioData, setAudioData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -66,22 +58,19 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const streamRef = useRef<MediaStream | null>(null);
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pipWindowRef = useRef<any>(null);
-  const pipUpdateRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const steps = template.steps as TemplateStep[];
   const totalSteps = steps.length;
   const stepLabels = ["Handle Verification", "Analytics Verification"];
 
-  // Check PiP support on mount
   useEffect(() => {
     setPipSupported("documentPictureInPicture" in window);
   }, []);
 
-  // Keep PiP content in sync
+  // Keep PiP in sync
   useEffect(() => {
-    if (!pipWindowRef.current) return;
     updatePipContent();
-  }, [instruction, currentStep, isAnalyzing, verifiedSteps]);
+  }, [instruction, currentStep, isAnalyzing, verifiedSteps, collectedData]);
 
   // Close PiP on completion
   useEffect(() => {
@@ -95,31 +84,31 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     const pipDoc = pipWindowRef.current?.document;
     if (!pipDoc) return;
 
-    const verifiedHtml = verifiedSteps.map((vs) =>
-      vs.data.map((d) =>
-        `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
-          <span style="color:#9ca3af;font-size:12px;">${d.label}:</span>
-          <span style="color:#fff;font-size:14px;font-weight:700;">${d.value}</span>
-        </div>`
-      ).join("")
+    const dataHtml = collectedData.map((d) =>
+      `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+        <span style="color:#9ca3af;font-size:12px;">${d.label}:</span>
+        <span style="color:#fff;font-size:14px;font-weight:700;">${d.value}</span>
+      </div>`
     ).join("");
 
     const analyzingHtml = isAnalyzing
       ? `<div style="display:flex;align-items:center;gap:6px;padding:8px 0 0;"><div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:pulse 1s infinite;"></div><span style="color:#93c5fd;font-size:12px;">Analyzing your screen...</span></div>`
       : "";
 
+    const safeStep = Math.min(currentStep, totalSteps - 1);
+
     pipDoc.body.innerHTML = `
       <div style="padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;">
           <div style="background:#6366f1;color:#fff;font-size:13px;font-weight:700;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            ${currentStep + 1}
+            ${safeStep + 1}
           </div>
           <div style="color:#fff;font-size:15px;font-weight:600;line-height:1.4;">
-            ${instruction || steps[currentStep]?.instruction || "Loading..."}
+            ${instruction || steps[safeStep]?.instruction || "Loading..."}
           </div>
         </div>
-        ${verifiedHtml ? `<div style="border-top:1px solid #374151;padding-top:8px;margin-top:4px;">${verifiedHtml}</div>` : ""}
+        ${dataHtml ? `<div style="border-top:1px solid #374151;padding-top:8px;margin-top:4px;">${dataHtml}</div>` : ""}
         ${analyzingHtml}
       </div>
     `;
@@ -133,20 +122,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         height: 200,
       });
       pipWindowRef.current = pip;
-
-      // Style the PiP window
       const style = pip.document.createElement("style");
       style.textContent = `
         body { margin: 0; background: #1f2937; overflow: hidden; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `;
       pip.document.head.appendChild(style);
-
-      // Handle PiP close
-      pip.addEventListener("pagehide", () => {
-        pipWindowRef.current = null;
-      });
-
+      pip.addEventListener("pagehide", () => { pipWindowRef.current = null; });
       updatePipContent();
     } catch (err) {
       console.error("Failed to open PiP:", err);
@@ -156,39 +138,43 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const connectWebSocket = useCallback(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
     const ws = new WebSocket(`${wsUrl}/ws/${token}`);
-
     ws.onopen = () => { setStatus("ready"); };
-
     ws.onmessage = (event) => {
-      try {
-        handleWebSocketMessage(JSON.parse(event.data));
-      } catch (err) {
-        console.error("[WS] Parse error:", err);
-      }
+      try { handleWebSocketMessage(JSON.parse(event.data)); }
+      catch (err) { console.error("[WS] Parse error:", err); }
     };
-
-    ws.onerror = () => {
-      setError("Connection error. Please refresh the page.");
-      setStatus("error");
-    };
-
+    ws.onerror = () => { setError("Connection error. Please refresh the page."); setStatus("error"); };
     ws.onclose = () => {
       if (status !== "completed" && status !== "error") {
-        setTimeout(() => {
-          if (wsRef.current?.readyState !== WebSocket.OPEN) connectWebSocket();
-        }, 3000);
+        setTimeout(() => { if (wsRef.current?.readyState !== WebSocket.OPEN) connectWebSocket(); }, 3000);
       }
     };
-
     wsRef.current = ws;
   }, [token, status]);
 
+  // Accumulate extracted data (dedup by label, always keep latest)
+  function accumulateData(items: ExtractedDataItem[]) {
+    if (!items?.length) return;
+    setCollectedData((prev) => {
+      const updated = [...prev];
+      for (const item of items) {
+        if (!item.label || !item.value) continue;
+        const idx = updated.findIndex((d) => d.label === item.label);
+        if (idx >= 0) updated[idx] = item;
+        else updated.push(item);
+      }
+      return updated;
+    });
+  }
+
   const handleWebSocketMessage = (data: any) => {
     switch (data.type) {
-      case "connected":
-        setCurrentStep(data.currentStep);
+      case "connected": {
+        const clampedStep = Math.min(data.currentStep, totalSteps - 1);
+        setCurrentStep(clampedStep);
         setInstruction(data.instruction);
         break;
+      }
 
       case "analyzing":
         setIsAnalyzing(true);
@@ -196,26 +182,26 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
       case "analysis":
         setIsAnalyzing(false);
-        setAnalysis({
-          description: data.description,
-          matchesSuccess: data.matchesSuccess,
-          confidence: data.confidence,
-          extractedData: data.extractedData,
-        });
+        // Always accumulate extracted data as it arrives
+        if (data.extractedData?.length) {
+          accumulateData(data.extractedData);
+        }
+        // Track which step this data belongs to
+        if (data.matchesSuccess && data.extractedData?.length) {
+          const stepData = data.extractedData.filter((d: ExtractedDataItem) => d.label && d.value);
+          if (stepData.length > 0) {
+            setVerifiedSteps((prev) => [
+              ...prev.filter((v) => v.stepIndex !== currentStep),
+              { stepIndex: currentStep, data: stepData },
+            ]);
+          }
+        }
         break;
 
       case "stepComplete": {
-        const completedStepIndex = data.currentStep - 1;
-        const stepData = analysis?.extractedData?.filter((d: ExtractedDataItem) => d.label && d.value) || [];
-        if (stepData.length > 0) {
-          setVerifiedSteps((prev) => [
-            ...prev.filter((v) => v.stepIndex !== completedStepIndex),
-            { stepIndex: completedStepIndex, data: stepData },
-          ]);
-        }
-        setCurrentStep(data.currentStep);
+        const clampedStep = Math.min(data.currentStep, totalSteps - 1);
+        setCurrentStep(clampedStep);
         setInstruction(data.nextInstruction);
-        setAnalysis(null);
         break;
       }
 
@@ -228,18 +214,14 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         setInstruction(data.text);
         break;
 
-      case "completed": {
-        const finalData = analysis?.extractedData?.filter((d: ExtractedDataItem) => d.label && d.value) || [];
-        if (finalData.length > 0) {
-          setVerifiedSteps((prev) => [
-            ...prev.filter((v) => v.stepIndex !== currentStep),
-            { stepIndex: currentStep, data: finalData },
-          ]);
+      case "completed":
+        // Accumulate any final data
+        if (data.extractedData?.length) {
+          accumulateData(data.extractedData);
         }
         setStatus("completed");
         stopScreenShare();
         break;
-      }
 
       case "error":
         setError(data.message);
@@ -260,16 +242,15 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         audio: false,
       });
       streamRef.current = stream;
+      // Hidden video element just for frame capture
       if (videoRef.current) videoRef.current.srcObject = stream;
       stream.getVideoTracks()[0].addEventListener("ended", () => stopScreenShare());
       connectWebSocket();
       startFrameSampling();
       setStatus("active");
-
-      // Auto-open PiP if supported
+      // Auto-open PiP
       if ("documentPictureInPicture" in window) {
-        // Small delay so the user sees the main UI first
-        setTimeout(() => openPipWindow(), 1500);
+        setTimeout(() => openPipWindow(), 1000);
       }
     } catch (err: any) {
       setError(err.name === "NotAllowedError"
@@ -314,175 +295,157 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     return () => clearInterval(hb);
   }, []);
 
+  const safeStep = Math.min(currentStep, totalSteps - 1);
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Hidden video + canvas for frame capture only */}
+      <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+      <canvas ref={canvasRef} className="hidden" />
+
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm p-4 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
+        <div className="max-w-3xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-semibold">{template.name}</h1>
-          <ProgressIndicator currentStep={currentStep} totalSteps={totalSteps} />
+          <span className="text-sm text-gray-500">Step {safeStep + 1} of {totalSteps}</span>
         </div>
       </header>
 
-      <main className="flex-1 p-4 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-4 max-w-3xl mx-auto w-full flex flex-col items-center justify-center">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">{error}</div>
+          <div className="w-full mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">{error}</div>
         )}
 
-        {/* Idle */}
+        {/* ===== IDLE ===== */}
         {status === "idle" && (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="max-w-md text-center">
-              <div className="w-24 h-24 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                <svg className="w-12 h-12 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <h2 className="text-2xl font-bold mb-4">Ready to Verify?</h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-8">
-                We'll verify your Instagram account in {totalSteps} quick steps. Share your screen and follow the floating instructions — they'll stay on top even when you switch tabs.
+          <div className="text-center max-w-md">
+            <div className="w-20 h-20 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold mb-3">Ready to Verify?</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Share your screen and follow the floating instructions to verify your Instagram account.
+            </p>
+            <button onClick={startScreenShare} className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg text-lg transition-colors">
+              Share Screen & Start
+            </button>
+            {!pipSupported && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                ⚠️ Use Chrome for the best experience (floating instruction overlay).
               </p>
-              <button onClick={startScreenShare} className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg text-lg transition-colors">
-                Share Screen & Start
-              </button>
-              {!pipSupported && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                  ⚠️ Your browser doesn't support floating overlays. Instructions will show on this page instead.
-                </p>
-              )}
-            </div>
+            )}
           </div>
         )}
 
-        {/* Active */}
+        {/* ===== ACTIVE ===== */}
         {(status === "active" || status === "ready" || status === "connecting") && (
-          <div className="space-y-4">
-            {/* Video with instruction overlay (fallback when no PiP) */}
-            <div className="bg-black rounded-lg overflow-hidden aspect-video relative">
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-
-              {/* Instruction overlay on video */}
-              <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/60 to-transparent p-4 pb-8">
-                <div className="flex items-start gap-3">
-                  <div className="bg-primary-500 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
-                    {currentStep + 1}
-                  </div>
-                  <div>
-                    <p className="text-white text-lg font-semibold leading-snug drop-shadow-lg">
-                      {instruction || steps[currentStep]?.instruction || "Loading..."}
-                    </p>
-                  </div>
+          <div className="w-full space-y-6">
+            {/* Current instruction card */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-start gap-4">
+                <div className="bg-primary-500 text-white text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center shrink-0">
+                  {safeStep + 1}
                 </div>
-              </div>
-
-              {/* Status badges */}
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                <div className="flex gap-2">
-                  {verifiedSteps.map((vs, i) => (
-                    <div key={i} className="bg-green-500/90 text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
-                      <CheckIcon className="w-3.5 h-3.5" />
-                      {vs.data[0]?.value || stepLabels[vs.stepIndex]}
-                    </div>
-                  ))}
-                </div>
-                {isAnalyzing && (
-                  <div className="bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 backdrop-blur-sm">
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                    Analyzing...
-                  </div>
-                )}
-              </div>
-
-              {status === "connecting" && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <div className="text-center text-white">
-                    <div className="spinner mx-auto mb-2"></div>
-                    <p>Connecting...</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <canvas ref={canvasRef} className="hidden" />
-
-            {/* Bottom bar */}
-            <div className="flex items-center gap-4">
-              {audioData && (
                 <div className="flex-1">
-                  <AudioPlayer audioData={audioData} onComplete={() => setAudioData(null)} />
-                </div>
-              )}
-              <div className="flex gap-2 ml-auto">
-                {pipSupported && !pipWindowRef.current && (
-                  <button onClick={openPipWindow} className="px-4 py-2 bg-indigo-100 dark:bg-indigo-900/20 hover:bg-indigo-200 dark:hover:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-sm font-medium transition-colors">
-                    📌 Float Instructions
-                  </button>
-                )}
-                <button onClick={requestHint} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
-                  Get Hint
-                </button>
-                <button onClick={stopScreenShare} className="px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 dark:hover:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
-                  Stop
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Completed */}
-        {status === "completed" && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="max-w-lg w-full">
-              <div className="text-center mb-8">
-                <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckIcon className="w-10 h-10 text-green-600 dark:text-green-400" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Verification Complete</h2>
-                <p className="text-gray-500 dark:text-gray-400">All data verified from your live screen.</p>
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-3">
-                  <h3 className="text-white font-semibold flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                    Verified Instagram Data
-                  </h3>
-                </div>
-                <div className="p-6 space-y-4">
-                  {verifiedSteps.map((vs, i) => (
-                    <div key={i}>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                        {stepLabels[vs.stepIndex] || `Step ${vs.stepIndex + 1}`}
-                      </p>
-                      {vs.data.map((d, j) => (
-                        <div key={j} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                          <div className="flex items-center gap-2">
-                            <CheckIcon className="w-4 h-4 text-green-500" />
-                            <span className="text-sm text-gray-600 dark:text-gray-400">{d.label}</span>
-                          </div>
-                          <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{d.value}</span>
-                        </div>
-                      ))}
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                    {instruction || steps[safeStep]?.instruction || "Loading..."}
+                  </p>
+                  {isAnalyzing && (
+                    <div className="flex items-center gap-2 mt-3 text-blue-600 dark:text-blue-400">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Analyzing your screen...</span>
                     </div>
-                  ))}
-                  {verifiedSteps.length === 0 && (
-                    <p className="text-gray-500 text-center py-4">Session completed.</p>
                   )}
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-                  <p className="text-xs text-gray-400 text-center">
-                    Verified via live screen analysis • {new Date().toLocaleString()}
-                  </p>
-                </div>
               </div>
+            </div>
 
-              <div className="text-center mt-6">
-                <a href="/" className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors inline-block">
-                  Back to Home
-                </a>
+            {/* Verified data so far */}
+            {collectedData.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+                {collectedData.map((d, i) => (
+                  <div key={i} className="flex items-center gap-3 py-2">
+                    <CheckIcon className="w-5 h-5 text-green-500 shrink-0" />
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{d.label}</span>
+                    <span className="ml-auto text-base font-bold text-gray-900 dark:text-gray-100">{d.value}</span>
+                  </div>
+                ))}
               </div>
+            )}
+
+            {/* Audio player */}
+            {audioData && (
+              <AudioPlayer audioData={audioData} onComplete={() => setAudioData(null)} />
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-3">
+              {pipSupported && (
+                <button onClick={openPipWindow} className="px-4 py-2 bg-indigo-100 dark:bg-indigo-900/20 hover:bg-indigo-200 text-indigo-700 dark:text-indigo-400 rounded-lg text-sm font-medium transition-colors">
+                  📌 Float Instructions
+                </button>
+              )}
+              <button onClick={requestHint} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">
+                Get Hint
+              </button>
+              <div className="flex-1" />
+              <button onClick={stopScreenShare} className="px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
+                Stop Session
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ===== COMPLETED ===== */}
+        {status === "completed" && (
+          <div className="w-full max-w-lg">
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckIcon className="w-10 h-10 text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Verification Complete</h2>
+              <p className="text-gray-500 dark:text-gray-400">All data verified from your live screen.</p>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-3">
+                <h3 className="text-white font-semibold flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Verified Instagram Data
+                </h3>
+              </div>
+              <div className="p-6">
+                {collectedData.length > 0 ? (
+                  <div className="space-y-0">
+                    {collectedData.map((d, j) => (
+                      <div key={j} className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                        <div className="flex items-center gap-2">
+                          <CheckIcon className="w-4 h-4 text-green-500" />
+                          <span className="text-sm text-gray-600 dark:text-gray-400">{d.label}</span>
+                        </div>
+                        <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{d.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-4">Session completed.</p>
+                )}
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-3 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-400 text-center">
+                  Verified via live screen analysis • {new Date().toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-center mt-6">
+              <a href="/" className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors inline-block">
+                Back to Home
+              </a>
             </div>
           </div>
         )}
