@@ -160,12 +160,12 @@ This audit evaluates the codebase across four dimensions: Logging, Security, Tec
 ### After Score: 8/10
 
 #### Improvements Made
-- ✅ Fixed test module resolution issues
-- ✅ Added storage route tests
-- ✅ Added AI provider factory tests
+- ✅ Fixed test module resolution issues (dynamic imports for db-dependent tests)
+- ✅ Added storage route tests (SAS URL generation, validation, security)
+- ✅ Added AI provider factory tests (provider detection, interfaces, error handling)
 - ✅ Added error case coverage
 - ✅ Added edge case tests for rate limiting
-- ✅ All tests now pass
+- ✅ All 124 tests pass, 34 skipped (require DATABASE_URL or API keys)
 
 #### Remaining Items
 - Add E2E tests with Playwright
