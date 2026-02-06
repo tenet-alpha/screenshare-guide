@@ -29,13 +29,23 @@ jobs:
 
       - name: Prepare standalone output (resolve symlinks)
         run: |
-          # Copy standalone with dereferenced symlinks to a clean dir
-          cp -rL apps/web/.next/standalone /tmp/standalone-resolved
-          # Copy back
-          rm -rf apps/web/.next/standalone
-          mv /tmp/standalone-resolved apps/web/.next/standalone
+          cd apps/web/.next/standalone
+          # Remove broken symlinks first
+          find . -type l ! -exec test -e {} \; -delete
+          # Resolve remaining valid symlinks to real files
+          find . -type l | while IFS= read -r link; do
+            target=$(readlink -f "$link")
+            rm "$link"
+            if [ -d "$target" ]; then
+              cp -r "$target" "$link"
+            elif [ -f "$target" ]; then
+              cp "$target" "$link"
+            fi
+          done
+          cd /home/runner/work/screenshare-guide/screenshare-guide
           # Copy static assets into standalone
           cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
+          mkdir -p apps/web/.next/standalone/apps/web/.next
           cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
 
       - name: Deploy to Azure Static Web Apps
