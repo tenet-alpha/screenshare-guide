@@ -27,36 +27,40 @@ jobs:
       - name: Build frontend
         run: bun run --filter @screenshare-guide/web build
 
-      - name: Debug standalone symlinks
+      - name: Fix standalone node_modules (replace bun symlinks with real copies)
         run: |
-          echo "=== Top-level standalone ==="
-          ls -la apps/web/.next/standalone/
-          echo ""
-          echo "=== node_modules in standalone (if exists) ==="
-          ls -la apps/web/.next/standalone/node_modules/ 2>/dev/null || echo "no top-level node_modules"
-          echo ""
-          echo "=== All symlinks ==="
-          find apps/web/.next/standalone -type l | head -30
-          echo ""
-          echo "=== First few symlink targets ==="
-          find apps/web/.next/standalone -type l | head -10 | while read l; do echo "$l -> $(readlink $l)"; done
-
-      - name: Resolve symlinks in standalone output
-        run: |
-          # cp -rL dereferences all symlinks into real copies
-          # Use --no-preserve=links as fallback
-          cp -rL apps/web/.next/standalone /tmp/standalone-real 2>/dev/null || {
-            echo "cp -rL failed, trying rsync..."
-            rsync -rL --copy-links apps/web/.next/standalone/ /tmp/standalone-real/
-          }
-          rm -rf apps/web/.next/standalone
-          mv /tmp/standalone-real apps/web/.next/standalone
+          STANDALONE=apps/web/.next/standalone
           
-          # Copy static assets required by Next.js
-          mkdir -p apps/web/.next/standalone/apps/web/public
-          cp -r apps/web/public/* apps/web/.next/standalone/apps/web/public/ 2>/dev/null || true
-          mkdir -p apps/web/.next/standalone/apps/web/.next
-          cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          # Bun creates relative symlinks in standalone/node_modules/ that point
+          # back to the workspace root node_modules/.bun/ cache. These are broken
+          # because standalone doesn't mirror the full monorepo directory tree.
+          # Fix: delete symlinks and copy the real resolved packages from workspace.
+          
+          find "$STANDALONE" -type l | while IFS= read -r link; do
+            pkg_name=$(basename "$link")
+            rm "$link"
+            
+            # Find the real package in workspace node_modules
+            if [ -d "node_modules/$pkg_name" ]; then
+              cp -rL "node_modules/$pkg_name" "$link"
+              echo "Resolved: $pkg_name from workspace root"
+            elif [ -d "apps/web/node_modules/$pkg_name" ]; then
+              cp -rL "apps/web/node_modules/$pkg_name" "$link"
+              echo "Resolved: $pkg_name from apps/web"
+            else
+              echo "WARNING: Could not find $pkg_name"
+            fi
+          done
+          
+          # Copy static assets required by Next.js standalone
+          mkdir -p "$STANDALONE/apps/web/public"
+          cp -r apps/web/public/* "$STANDALONE/apps/web/public/" 2>/dev/null || true
+          mkdir -p "$STANDALONE/apps/web/.next"
+          cp -r apps/web/.next/static "$STANDALONE/apps/web/.next/static"
+          
+          # Verify no symlinks remain
+          remaining=$(find "$STANDALONE" -type l | wc -l)
+          echo "Remaining symlinks: $remaining"
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
