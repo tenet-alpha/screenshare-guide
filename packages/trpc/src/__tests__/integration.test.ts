@@ -244,14 +244,16 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
     });
 
     it("should reject expired sessions", async () => {
-      // Create session with very short expiry
+      // Create a session with normal expiry
       const session = await caller.session.create({
         templateId,
-        expiryHours: 1 / 3600, // 1 second
       });
 
-      // Wait for expiry
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      // Manually set expiresAt to the past to simulate expiry
+      const { eq } = await import("drizzle-orm");
+      await db.update(schema.sessions)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(schema.sessions.token, session.token));
 
       await expect(
         caller.session.getByToken({ token: session.token })
