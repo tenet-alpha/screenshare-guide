@@ -93,7 +93,7 @@ describe("Storage Routes", () => {
         contentType: "video/webm",
       };
 
-      const inputWithoutContentType = {
+      const inputWithoutContentType: { sessionId: string; chunkIndex: number; contentType?: string } = {
         sessionId: "test",
         chunkIndex: 0,
       };

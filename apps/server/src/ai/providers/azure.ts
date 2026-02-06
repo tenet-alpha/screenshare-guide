@@ -1,11 +1,11 @@
 /**
  * Azure OpenAI Provider
  * 
- * Uses Azure OpenAI for vision analysis (GPT-4o).
+ * Uses the official `openai` package configured for Azure endpoints.
  * TTS uses Azure Cognitive Services Speech or falls back to ElevenLabs.
  */
 
-import { AzureOpenAI } from "@azure/openai";
+import OpenAI from "openai";
 import type {
   VisionProvider,
   TTSProvider,
@@ -19,7 +19,7 @@ import type {
 // ============================================================================
 
 class AzureOpenAIVisionProvider implements VisionProvider {
-  private client: AzureOpenAI;
+  private client: OpenAI;
   private deploymentName: string;
 
   constructor() {
@@ -39,10 +39,12 @@ class AzureOpenAIVisionProvider implements VisionProvider {
       );
     }
 
-    this.client = new AzureOpenAI({
-      endpoint,
+    // Use the openai package with Azure configuration
+    this.client = new OpenAI({
       apiKey,
-      apiVersion: "2024-10-21",
+      baseURL: `${endpoint}/openai/deployments/${deployment}`,
+      defaultQuery: { "api-version": "2024-10-21" },
+      defaultHeaders: { "api-key": apiKey },
     });
     this.deploymentName = deployment;
   }
@@ -57,7 +59,6 @@ class AzureOpenAIVisionProvider implements VisionProvider {
     if (imageBase64.startsWith("data:image/")) {
       imageUrl = imageBase64;
     } else {
-      // Default to jpeg if no prefix
       imageUrl = `data:image/jpeg;base64,${imageBase64}`;
     }
 
@@ -280,7 +281,6 @@ class AzureSpeechTTSProvider implements TTSProvider {
   }
 
   async getVoices(): Promise<VoiceInfo[]> {
-    // Return common Azure Neural voices
     return [
       { voice_id: "en-US-JennyNeural", name: "Jenny", category: "neural" },
       { voice_id: "en-US-GuyNeural", name: "Guy", category: "neural" },

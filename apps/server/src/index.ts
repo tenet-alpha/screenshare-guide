@@ -48,30 +48,31 @@ const app = new Elysia()
 
   // Request logging
   .onAfterHandle(({ request, set, requestId, startTime }) => {
-    const duration = Date.now() - startTime;
+    const duration = Date.now() - (startTime ?? Date.now());
     const status = typeof set.status === "number" ? set.status : 200;
-    logRequest(requestId, request.method, new URL(request.url).pathname, status, duration);
+    logRequest(requestId ?? "unknown", request.method, new URL(request.url).pathname, status, duration);
   })
 
   // Error handling with logging
   .onError(({ error, request, set, requestId, startTime }) => {
-    const duration = Date.now() - startTime;
+    const duration = Date.now() - (startTime ?? Date.now());
     const status = typeof set.status === "number" ? set.status : 500;
+    const err = error as Error;
 
     logRequest(
-      requestId,
+      requestId ?? "unknown",
       request.method,
       new URL(request.url).pathname,
       status,
       duration,
-      error as Error
+      err
     );
 
     // Return structured error response
     return {
-      error: error.name || "Error",
-      message: error.message || "An unexpected error occurred",
-      requestId,
+      error: err.name || "Error",
+      message: err.message || "An unexpected error occurred",
+      requestId: requestId ?? "unknown",
     };
   })
 

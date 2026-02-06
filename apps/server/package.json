@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
-    "@azure/openai": "^2.0.0",
+    "openai": "^4.77.0",
     "@azure/storage-blob": "^12.30.0",
     "@elysiajs/cors": "^1.0.2",
     "@screenshare-guide/db": "workspace:*",
