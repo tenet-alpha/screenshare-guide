@@ -1,18 +1,36 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { ScreenShareSession } from "@/components/ScreenShareSession";
 
-export default function SessionPage() {
-  const params = useParams();
-  const token = params.token as string;
+export default function SessionClient() {
+  const pathname = usePathname();
+  // Extract token from /s/<token>
+  const segments = pathname?.split("/").filter(Boolean) || [];
+  const token = segments.length > 1 ? segments[segments.length - 1] : "";
 
   const {
     data: session,
     isLoading,
     error,
-  } = trpc.session.getByToken.useQuery({ token });
+  } = trpc.session.getByToken.useQuery(
+    { token },
+    { enabled: !!token }
+  );
+
+  if (!token) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
+          <h1 className="text-xl font-semibold mb-2">No Session Token</h1>
+          <p className="text-gray-500 dark:text-gray-400">
+            Please provide a valid session URL.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
