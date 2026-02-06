@@ -25,8 +25,8 @@ WORKDIR /app
 # Copy everything from builder
 COPY --from=base /app /app
 
-# Expose the server port (Elysia)
-EXPOSE 3001
+# Expose the proxy port (Azure sets PORT=8080)
+EXPOSE 8080
 
-# Start script runs both services
-CMD ["bun", "run", "start:prod"]
+# Start both services + reverse proxy
+CMD ["sh", "scripts/start.sh"]
