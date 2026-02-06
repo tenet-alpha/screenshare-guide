@@ -3,7 +3,7 @@
 
 -- Initial schema: creates all tables for screenshare-guide
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- gen_random_uuid() is built-in since PostgreSQL 14, no extension needed
 
 CREATE TABLE IF NOT EXISTS templates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
