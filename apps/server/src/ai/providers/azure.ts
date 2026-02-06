@@ -99,7 +99,7 @@ Respond in JSON format only:
           "api-key": this.apiKey,
         },
         body: JSON.stringify({
-          max_completion_tokens: 500,
+          max_completion_tokens: 1500,
           messages: [
             {
               role: "system",
@@ -142,7 +142,7 @@ Respond in JSON format only:
         throw new Error(`Model refused: ${refusal}`);
       }
 
-      if (!content) {
+      if (!content || content.trim().length === 0) {
         console.error("[Azure OpenAI Vision] No content. finish_reason:", finishReason, "full response:", JSON.stringify(response).substring(0, 500));
         throw new Error(`No response from Azure OpenAI (finish_reason: ${finishReason})`);
       }
