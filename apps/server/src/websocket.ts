@@ -266,6 +266,11 @@ async function handleFrame(
           .where("token", "=", token)
           .execute();
 
+        // Build acknowledgment from extracted data
+        const extractedSummary = (analysis.extractedData || [])
+          .map((d: { label: string; value: string }) => `${d.label}: ${d.value}`)
+          .join(", ");
+
         if (state.currentStep >= state.totalSteps) {
           // Session complete
           state.status = "completed";
@@ -278,9 +283,12 @@ async function handleFrame(
           log.info("Session completed", { sessionId: state.sessionId });
 
           ws.send(JSON.stringify({ type: "completed", message: "All steps completed!" }));
-          await sendInstruction(ws, "Great job! You've completed all the steps.", state);
+          const completionMsg = extractedSummary
+            ? `I've captured everything. ${extractedSummary}. Great job — all steps are complete!`
+            : "Great job! You've completed all the steps.";
+          await sendInstruction(ws, completionMsg, state);
         } else {
-          // Send next instruction
+          // Send next instruction with acknowledgment of what was found
           const nextStep = state.steps[state.currentStep];
           ws.send(
             JSON.stringify({
@@ -290,15 +298,23 @@ async function handleFrame(
               nextInstruction: nextStep.instruction,
             })
           );
-          await sendInstruction(ws, nextStep.instruction, state);
+
+          const ackPrefix = extractedSummary
+            ? `I can see ${extractedSummary}. Step complete! Now, `
+            : `Step complete! Now, `;
+          await sendInstruction(ws, `${ackPrefix}${nextStep.instruction}`, state);
         }
       }
     } else {
       state.consecutiveSuccesses = 0;
 
-      // If user seems stuck, provide guidance
+      // Provide contextual guidance based on what vision sees
       if (analysis.suggestedAction) {
-        await sendInstruction(ws, analysis.suggestedAction, state);
+        // Include what was detected to show awareness
+        const seenContext = analysis.description !== "Unable to analyze frame"
+          ? `I can see ${analysis.description.toLowerCase()}. `
+          : "";
+        await sendInstruction(ws, `${seenContext}${analysis.suggestedAction}`, state);
       }
     }
 

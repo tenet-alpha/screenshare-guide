@@ -41,6 +41,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const [currentStep, setCurrentStep] = useState(initialStep);
   const [instruction, setInstruction] = useState<string>("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [collectedData, setCollectedData] = useState<ExtractedDataItem[]>([]);
   const [audioData, setAudioData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -114,12 +115,28 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
           confidence: data.confidence,
           extractedData: data.extractedData,
         });
+        // Accumulate new extracted data (deduplicate by label)
+        if (data.extractedData?.length) {
+          setCollectedData((prev) => {
+            const updated = [...prev];
+            for (const item of data.extractedData) {
+              if (!item.label || !item.value) continue;
+              const existing = updated.findIndex((d) => d.label === item.label);
+              if (existing >= 0) {
+                updated[existing] = item; // Update existing label with latest value
+              } else {
+                updated.push(item); // Add new label
+              }
+            }
+            return updated;
+          });
+        }
         break;
 
       case "stepComplete":
         setCurrentStep(data.currentStep);
         setInstruction(data.nextInstruction);
-        setAnalysis(null);
+        setAnalysis(null); // Clear current analysis but keep collectedData
         break;
 
       case "audio":
@@ -398,8 +415,8 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 />
               )}
 
-              {/* Extracted Data Display */}
-              {analysis?.extractedData && analysis.extractedData.length > 0 && (
+              {/* Collected Data Display (persists across steps) */}
+              {collectedData.length > 0 && (
                 <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/30 dark:to-blue-900/30 border border-indigo-200 dark:border-indigo-700 rounded-lg p-5">
                   <h3 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -408,10 +425,10 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                     Verified Data
                   </h3>
                   <div className="space-y-2">
-                    {analysis.extractedData.map((item, i) => (
-                      <div key={i} className="flex justify-between items-baseline">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">{item.label}</span>
-                        <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{item.value}</span>
+                    {collectedData.map((item, i) => (
+                      <div key={i} className="flex justify-between items-baseline gap-4">
+                        <span className="text-sm text-gray-600 dark:text-gray-400 shrink-0">{item.label}</span>
+                        <span className="text-lg font-bold text-gray-900 dark:text-gray-100 text-right">{item.value}</span>
                       </div>
                     ))}
                   </div>
