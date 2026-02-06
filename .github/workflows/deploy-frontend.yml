@@ -29,17 +29,10 @@ jobs:
 
       - name: Resolve symlinks in standalone output
         run: |
-          cd apps/web/.next/standalone
-          # Replace symlinks with real files/dirs so SWA zip doesn't break
-          find . -type l | while read link; do
-            target=$(readlink -f "$link")
-            rm "$link"
-            if [ -d "$target" ]; then
-              cp -r "$target" "$link"
-            elif [ -f "$target" ]; then
-              cp "$target" "$link"
-            fi
-          done
+          # Copy standalone dir with dereferenced symlinks
+          cp -rL apps/web/.next/standalone apps/web/.next/standalone-resolved
+          rm -rf apps/web/.next/standalone
+          mv apps/web/.next/standalone-resolved apps/web/.next/standalone
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
