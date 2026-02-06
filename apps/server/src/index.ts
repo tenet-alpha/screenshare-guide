@@ -99,8 +99,8 @@ logger.info(
     port: PORT,
     corsOrigins,
     nodeEnv: process.env.NODE_ENV,
-    visionProvider: process.env.VISION_PROVIDER || process.env.AI_PROVIDER || "anthropic",
-    ttsProvider: process.env.TTS_PROVIDER || (process.env.AI_PROVIDER === "azure" ? "azure" : "elevenlabs"),
+    visionProvider: process.env.VISION_PROVIDER || "azure",
+    ttsProvider: process.env.TTS_PROVIDER || "elevenlabs",
   },
   "Server started"
 );

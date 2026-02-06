@@ -15,151 +15,47 @@ describe("AI Provider Factory", () => {
   });
 
   describe("Vision Provider Type Detection", () => {
-    it("should default to anthropic when nothing is set", () => {
+    it("should default to azure", () => {
       delete process.env.VISION_PROVIDER;
-      delete process.env.AI_PROVIDER;
-
-      const getVisionProviderType = () => {
-        const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "anthropic") return "anthropic";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "anthropic";
-      };
-
-      expect(getVisionProviderType()).toBe("anthropic");
+      const type = () => process.env.VISION_PROVIDER?.toLowerCase() === "anthropic" ? "anthropic" : "azure";
+      expect(type()).toBe("azure");
     });
 
-    it("should use VISION_PROVIDER over AI_PROVIDER", () => {
-      process.env.VISION_PROVIDER = "azure";
-      process.env.AI_PROVIDER = "anthropic";
-
-      const getVisionProviderType = () => {
-        const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "anthropic") return "anthropic";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "anthropic";
-      };
-
-      expect(getVisionProviderType()).toBe("azure");
-    });
-
-    it("should fall back to AI_PROVIDER for vision", () => {
-      delete process.env.VISION_PROVIDER;
-      process.env.AI_PROVIDER = "azure";
-
-      const getVisionProviderType = () => {
-        const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "anthropic") return "anthropic";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "anthropic";
-      };
-
-      expect(getVisionProviderType()).toBe("azure");
+    it("should return anthropic when set", () => {
+      process.env.VISION_PROVIDER = "anthropic";
+      const type = () => process.env.VISION_PROVIDER?.toLowerCase() === "anthropic" ? "anthropic" : "azure";
+      expect(type()).toBe("anthropic");
     });
 
     it("should be case-insensitive", () => {
-      for (const testCase of ["AZURE", "Azure", "aZuRe"]) {
-        process.env.VISION_PROVIDER = testCase;
-
-        const getVisionProviderType = () => {
-          const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-          if (explicit === "azure") return "azure";
-          if (explicit === "anthropic") return "anthropic";
-          return "anthropic";
-        };
-
-        expect(getVisionProviderType()).toBe("azure");
+      for (const v of ["ANTHROPIC", "Anthropic", "anthropic"]) {
+        process.env.VISION_PROVIDER = v;
+        const type = () => process.env.VISION_PROVIDER?.toLowerCase() === "anthropic" ? "anthropic" : "azure";
+        expect(type()).toBe("anthropic");
       }
-    });
-
-    it("should default to anthropic for unknown provider", () => {
-      process.env.VISION_PROVIDER = "unknown";
-
-      const getVisionProviderType = () => {
-        const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "anthropic") return "anthropic";
-        return "anthropic";
-      };
-
-      expect(getVisionProviderType()).toBe("anthropic");
     });
   });
 
   describe("TTS Provider Type Detection", () => {
-    it("should default to elevenlabs when nothing is set", () => {
+    it("should default to elevenlabs", () => {
       delete process.env.TTS_PROVIDER;
-      delete process.env.AI_PROVIDER;
-
-      const getTTSProviderType = () => {
-        const explicit = process.env.TTS_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "elevenlabs") return "elevenlabs";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "elevenlabs";
-      };
-
-      expect(getTTSProviderType()).toBe("elevenlabs");
+      const type = () => process.env.TTS_PROVIDER?.toLowerCase() === "azure" ? "azure" : "elevenlabs";
+      expect(type()).toBe("elevenlabs");
     });
 
-    it("should use TTS_PROVIDER over AI_PROVIDER", () => {
-      process.env.TTS_PROVIDER = "elevenlabs";
-      process.env.AI_PROVIDER = "azure";
-
-      const getTTSProviderType = () => {
-        const explicit = process.env.TTS_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "elevenlabs") return "elevenlabs";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "elevenlabs";
-      };
-
-      expect(getTTSProviderType()).toBe("elevenlabs");
+    it("should return azure when set", () => {
+      process.env.TTS_PROVIDER = "azure";
+      const type = () => process.env.TTS_PROVIDER?.toLowerCase() === "azure" ? "azure" : "elevenlabs";
+      expect(type()).toBe("azure");
     });
 
     it("should allow azure vision + elevenlabs TTS", () => {
       process.env.VISION_PROVIDER = "azure";
       process.env.TTS_PROVIDER = "elevenlabs";
-
-      const getVisionProviderType = () => {
-        const explicit = process.env.VISION_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        return "anthropic";
-      };
-
-      const getTTSProviderType = () => {
-        const explicit = process.env.TTS_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "elevenlabs") return "elevenlabs";
-        return "elevenlabs";
-      };
-
-      expect(getVisionProviderType()).toBe("azure");
-      expect(getTTSProviderType()).toBe("elevenlabs");
-    });
-
-    it("should fall back to AI_PROVIDER for TTS", () => {
-      delete process.env.TTS_PROVIDER;
-      process.env.AI_PROVIDER = "azure";
-
-      const getTTSProviderType = () => {
-        const explicit = process.env.TTS_PROVIDER?.toLowerCase();
-        if (explicit === "azure") return "azure";
-        if (explicit === "elevenlabs") return "elevenlabs";
-        const legacy = process.env.AI_PROVIDER?.toLowerCase();
-        if (legacy === "azure") return "azure";
-        return "elevenlabs";
-      };
-
-      expect(getTTSProviderType()).toBe("azure");
+      const vision = () => process.env.VISION_PROVIDER?.toLowerCase() === "anthropic" ? "anthropic" : "azure";
+      const tts = () => process.env.TTS_PROVIDER?.toLowerCase() === "azure" ? "azure" : "elevenlabs";
+      expect(vision()).toBe("azure");
+      expect(tts()).toBe("elevenlabs");
     });
   });
 

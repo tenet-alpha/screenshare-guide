@@ -1,8 +1,5 @@
 /**
  * AI Provider Types
- * 
- * Common interfaces for vision analysis and text-to-speech
- * that can be implemented by different AI providers.
  */
 
 export interface FrameAnalysisResult {
@@ -24,68 +21,24 @@ export interface VoiceInfo {
   category: string;
 }
 
-/**
- * Vision analysis provider interface
- */
 export interface VisionProvider {
-  /**
-   * Analyze a screen frame to evaluate task progress
-   */
   analyzeFrame(
     imageBase64: string,
     currentInstruction: string,
     successCriteria: string
   ): Promise<FrameAnalysisResult>;
 
-  /**
-   * Quick check if a specific element is visible
-   */
   quickElementCheck(
     imageBase64: string,
     elementDescription: string
   ): Promise<QuickCheckResult>;
 }
 
-/**
- * Text-to-speech provider interface
- */
 export interface TTSProvider {
-  /**
-   * Generate speech audio from text
-   * @returns Base64 encoded audio data
-   */
   generateSpeech(text: string, voiceId?: string): Promise<string>;
-
-  /**
-   * Generate speech with streaming support
-   */
   generateSpeechStream?(text: string, voiceId?: string): AsyncGenerator<Uint8Array>;
-
-  /**
-   * Get available voices
-   */
   getVoices?(): Promise<VoiceInfo[]>;
 }
 
-/**
- * Combined AI provider interface
- */
-export interface AIProvider {
-  vision: VisionProvider;
-  tts: TTSProvider;
-}
-
-/**
- * Supported vision provider types
- */
-export type VisionProviderType = "anthropic" | "azure";
-
-/**
- * Supported TTS provider types
- */
+export type VisionProviderType = "azure" | "anthropic";
 export type TTSProviderType = "elevenlabs" | "azure";
-
-/**
- * @deprecated Use VisionProviderType or TTSProviderType instead
- */
-export type AIProviderType = "anthropic" | "azure";

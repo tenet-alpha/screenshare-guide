@@ -25,7 +25,7 @@ class AzureOpenAIVisionProvider implements VisionProvider {
   constructor() {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_VISION;
+    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_VISION || "gpt-5.2";
 
     if (!endpoint) {
       throw new Error("AZURE_OPENAI_ENDPOINT environment variable is required");
@@ -33,13 +33,7 @@ class AzureOpenAIVisionProvider implements VisionProvider {
     if (!apiKey) {
       throw new Error("AZURE_OPENAI_API_KEY environment variable is required");
     }
-    if (!deployment) {
-      throw new Error(
-        "AZURE_OPENAI_DEPLOYMENT_VISION environment variable is required"
-      );
-    }
 
-    // Use the openai package with Azure configuration
     this.client = new OpenAI({
       apiKey,
       baseURL: `${endpoint}/openai/deployments/${deployment}`,
