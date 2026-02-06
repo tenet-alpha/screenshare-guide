@@ -27,10 +27,28 @@ jobs:
       - name: Build frontend
         run: bun run --filter @screenshare-guide/web build
 
+      - name: Debug standalone symlinks
+        run: |
+          echo "=== Top-level standalone ==="
+          ls -la apps/web/.next/standalone/
+          echo ""
+          echo "=== node_modules in standalone (if exists) ==="
+          ls -la apps/web/.next/standalone/node_modules/ 2>/dev/null || echo "no top-level node_modules"
+          echo ""
+          echo "=== All symlinks ==="
+          find apps/web/.next/standalone -type l | head -30
+          echo ""
+          echo "=== First few symlink targets ==="
+          find apps/web/.next/standalone -type l | head -10 | while read l; do echo "$l -> $(readlink $l)"; done
+
       - name: Resolve symlinks in standalone output
         run: |
           # cp -rL dereferences all symlinks into real copies
-          cp -rL apps/web/.next/standalone /tmp/standalone-real
+          # Use --no-preserve=links as fallback
+          cp -rL apps/web/.next/standalone /tmp/standalone-real 2>/dev/null || {
+            echo "cp -rL failed, trying rsync..."
+            rsync -rL --copy-links apps/web/.next/standalone/ /tmp/standalone-real/
+          }
           rm -rf apps/web/.next/standalone
           mv /tmp/standalone-real apps/web/.next/standalone
           
