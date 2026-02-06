@@ -1,11 +1,10 @@
 /**
  * Azure OpenAI Provider
  * 
- * Uses the official `openai` package configured for Azure endpoints.
+ * Uses direct fetch calls to Azure OpenAI REST API.
  * TTS uses Azure Cognitive Services Speech or falls back to ElevenLabs.
  */
 
-import OpenAI from "openai";
 import type {
   VisionProvider,
   TTSProvider,
@@ -19,8 +18,10 @@ import type {
 // ============================================================================
 
 class AzureOpenAIVisionProvider implements VisionProvider {
-  private client: OpenAI;
+  private endpoint: string;
+  private apiKey: string;
   private deploymentName: string;
+  private apiVersion: string;
 
   constructor() {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
@@ -34,13 +35,14 @@ class AzureOpenAIVisionProvider implements VisionProvider {
       throw new Error("AZURE_OPENAI_API_KEY environment variable is required");
     }
 
-    this.client = new OpenAI({
-      apiKey,
-      baseURL: `${endpoint}/openai/deployments/${deployment}`,
-      defaultQuery: { "api-version": "2024-10-21" },
-      defaultHeaders: { "api-key": apiKey },
-    });
+    this.endpoint = endpoint;
+    this.apiKey = apiKey;
     this.deploymentName = deployment;
+    this.apiVersion = "2024-10-21";
+  }
+
+  private get completionsUrl(): string {
+    return `${this.endpoint}/openai/deployments/${this.deploymentName}/chat/completions?api-version=${this.apiVersion}`;
   }
 
   async analyzeFrame(
@@ -90,34 +92,47 @@ Respond in JSON format only:
 }`;
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.deploymentName,
-        max_completion_tokens: 500,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageUrl,
-                  detail: "high",
+      const fetchResp = await fetch(this.completionsUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          max_completion_tokens: 500,
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageUrl,
+                    detail: "high",
+                  },
                 },
-              },
-              {
-                type: "text",
-                text: userPrompt,
-              },
-            ],
-          },
-        ],
+                {
+                  type: "text",
+                  text: userPrompt,
+                },
+              ],
+            },
+          ],
+        }),
       });
 
-      const choice = response.choices[0];
+      if (!fetchResp.ok) {
+        const errBody = await fetchResp.text();
+        console.error("[Azure OpenAI Vision] API error:", fetchResp.status, errBody.substring(0, 500));
+        throw new Error(`Azure OpenAI API error: ${fetchResp.status}`);
+      }
+
+      const response = await fetchResp.json() as any;
+      const choice = response.choices?.[0];
       const content = choice?.message?.content;
       const refusal = choice?.message?.refusal;
       const finishReason = choice?.finish_reason;
@@ -128,7 +143,7 @@ Respond in JSON format only:
       }
 
       if (!content) {
-        console.error("[Azure OpenAI Vision] No content. finish_reason:", finishReason, "full message:", JSON.stringify(choice?.message));
+        console.error("[Azure OpenAI Vision] No content. finish_reason:", finishReason, "full response:", JSON.stringify(response).substring(0, 500));
         throw new Error(`No response from Azure OpenAI (finish_reason: ${finishReason})`);
       }
 
@@ -181,30 +196,41 @@ Respond in JSON format only:
     }
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.deploymentName,
-        max_completion_tokens: 100,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageUrl,
-                  detail: "low",
+      const fetchResp = await fetch(this.completionsUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          max_completion_tokens: 100,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageUrl,
+                    detail: "low",
+                  },
                 },
-              },
-              {
-                type: "text",
-                text: `Is "${elementDescription}" visible in this screenshot? Reply with JSON only: {"found": boolean, "confidence": number}`,
-              },
-            ],
-          },
-        ],
+                {
+                  type: "text",
+                  text: `Is "${elementDescription}" visible in this screenshot? Reply with JSON only: {"found": boolean, "confidence": number}`,
+                },
+              ],
+            },
+          ],
+        }),
       });
 
-      const content = response.choices[0]?.message?.content;
+      if (!fetchResp.ok) {
+        throw new Error(`Azure OpenAI API error: ${fetchResp.status}`);
+      }
+
+      const response = await fetchResp.json() as any;
+      const content = response.choices?.[0]?.message?.content;
       if (!content) {
         return { found: false, confidence: 0 };
       }
