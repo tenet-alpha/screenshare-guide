@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { eq, lt } from "drizzle-orm";
-import * as schema from "../src/schema";
+import * as schema from "../schema";
 
 /**
  * Database Integration Tests

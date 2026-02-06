@@ -1,49 +1,62 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as schema from "@screenshare-guide/db/schema";
-import { appRouter, createContext } from "../src/index";
 
 /**
  * tRPC Integration Tests
  * 
  * These tests create actual tRPC callers with a real database connection.
  * They verify the full request lifecycle from input validation to database operations.
+ * 
+ * Requires DATABASE_URL environment variable to be set.
  */
 
 const connectionString = process.env.DATABASE_URL;
 const shouldSkip = !connectionString;
 
-// Create test-specific connection
-const sql = shouldSkip ? null : postgres(connectionString!);
-const db = shouldSkip ? null : drizzle(sql!, { schema });
+// Dynamic imports to avoid loading db module when DATABASE_URL is not set
+async function setupTest() {
+  const { drizzle } = await import("drizzle-orm/postgres-js");
+  const postgres = (await import("postgres")).default;
+  const schema = await import("@screenshare-guide/db/schema");
+  const { appRouter } = await import("../index");
 
-// Create a test caller with our test db
-const createTestCaller = () => {
-  return appRouter.createCaller({ db: db! });
-};
+  const sql = postgres(connectionString!);
+  const db = drizzle(sql, { schema });
+
+  const createTestCaller = () => {
+    return appRouter.createCaller({ db });
+  };
+
+  return { db, sql, schema, createTestCaller };
+}
 
 describe.skipIf(shouldSkip)("tRPC Integration", () => {
-  let caller: ReturnType<typeof createTestCaller>;
+  let caller: any;
+  let db: any;
+  let sql: any;
+  let schema: any;
 
-  beforeAll(() => {
-    caller = createTestCaller();
+  beforeAll(async () => {
+    const setup = await setupTest();
+    db = setup.db;
+    sql = setup.sql;
+    schema = setup.schema;
+    caller = setup.createTestCaller();
   });
 
   beforeEach(async () => {
     // Clean up test data
-    await db!.delete(schema.frameSamples);
-    await db!.delete(schema.recordings);
-    await db!.delete(schema.sessions);
-    await db!.delete(schema.templates);
+    await db.delete(schema.frameSamples);
+    await db.delete(schema.recordings);
+    await db.delete(schema.sessions);
+    await db.delete(schema.templates);
   });
 
   afterAll(async () => {
-    await db!.delete(schema.frameSamples);
-    await db!.delete(schema.recordings);
-    await db!.delete(schema.sessions);
-    await db!.delete(schema.templates);
-    await sql!.end();
+    await db.delete(schema.frameSamples);
+    await db.delete(schema.recordings);
+    await db.delete(schema.sessions);
+    await db.delete(schema.templates);
+    await sql.end();
   });
 
   describe("Template Router", () => {
@@ -137,10 +150,10 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
     beforeEach(async () => {
       // Clean and create fresh template for session tests
-      await db!.delete(schema.frameSamples);
-      await db!.delete(schema.recordings);
-      await db!.delete(schema.sessions);
-      await db!.delete(schema.templates);
+      await db.delete(schema.frameSamples);
+      await db.delete(schema.recordings);
+      await db.delete(schema.sessions);
+      await db.delete(schema.templates);
       
       const template = await caller.template.create({
         name: "Session Test Template",
