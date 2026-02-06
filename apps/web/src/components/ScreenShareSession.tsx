@@ -24,10 +24,16 @@ interface Props {
 
 type SessionStatus = "idle" | "connecting" | "ready" | "active" | "completed" | "error";
 
+interface ExtractedDataItem {
+  label: string;
+  value: string;
+}
+
 interface AnalysisResult {
   description: string;
   matchesSuccess: boolean;
   confidence: number;
+  extractedData?: ExtractedDataItem[];
 }
 
 export function ScreenShareSession({ token, sessionId, template, initialStep }: Props) {
@@ -106,6 +112,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
           description: data.description,
           matchesSuccess: data.matchesSuccess,
           confidence: data.confidence,
+          extractedData: data.extractedData,
         });
         break;
 
@@ -389,6 +396,26 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                   audioData={audioData}
                   onComplete={() => setAudioData(null)}
                 />
+              )}
+
+              {/* Extracted Data Display */}
+              {analysis?.extractedData && analysis.extractedData.length > 0 && (
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/30 dark:to-blue-900/30 border border-indigo-200 dark:border-indigo-700 rounded-lg p-5">
+                  <h3 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    Verified Data
+                  </h3>
+                  <div className="space-y-2">
+                    {analysis.extractedData.map((item, i) => (
+                      <div key={i} className="flex justify-between items-baseline">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">{item.label}</span>
+                        <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Analysis Result */}

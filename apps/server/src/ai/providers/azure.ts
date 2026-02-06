@@ -61,9 +61,11 @@ Your job is to:
 1. Describe what you see on screen
 2. Identify UI elements relevant to the current instruction
 3. Determine if the success criteria has been met
-4. If the user seems stuck, provide helpful guidance
+4. Extract any specific data mentioned in the success criteria (handles, numbers, metrics, etc.)
+5. If the user seems stuck, provide helpful guidance
 
-Be concise and helpful. Focus on actionable observations.`;
+Be concise and helpful. Focus on actionable observations.
+CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.`;
 
     const userPrompt = `Current instruction for the user: "${currentInstruction}"
 
@@ -75,6 +77,7 @@ Please analyze this screenshot and provide:
 3. Whether the success criteria appears to be met (true/false)
 4. Your confidence level (0.0 to 1.0)
 5. If the criteria is NOT met, a suggested action for the user
+6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs
 
 Respond in JSON format only:
 {
@@ -82,13 +85,14 @@ Respond in JSON format only:
   "detectedElements": ["string"],
   "matchesSuccessCriteria": boolean,
   "confidence": number,
-  "suggestedAction": "string or null"
+  "suggestedAction": "string or null",
+  "extractedData": [{"label": "string", "value": "string"}]
 }`;
 
     try {
       const response = await this.client.chat.completions.create({
         model: this.deploymentName,
-        max_tokens: 500,
+        max_completion_tokens: 500,
         messages: [
           {
             role: "system",
@@ -135,6 +139,9 @@ Respond in JSON format only:
         matchesSuccessCriteria: Boolean(result.matchesSuccessCriteria),
         confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
         suggestedAction: result.suggestedAction || undefined,
+        extractedData: Array.isArray(result.extractedData)
+          ? result.extractedData.filter((d: any) => d.label && d.value)
+          : undefined,
       };
     } catch (error) {
       console.error("[Azure OpenAI Vision] Analysis error:", error);
@@ -165,7 +172,7 @@ Respond in JSON format only:
     try {
       const response = await this.client.chat.completions.create({
         model: this.deploymentName,
-        max_tokens: 100,
+        max_completion_tokens: 100,
         messages: [
           {
             role: "user",

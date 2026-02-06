@@ -241,6 +241,7 @@ async function handleFrame(
         description: analysis.description,
         matchesSuccess: analysis.matchesSuccessCriteria,
         confidence: analysis.confidence,
+        extractedData: analysis.extractedData || [],
       })
     );
 

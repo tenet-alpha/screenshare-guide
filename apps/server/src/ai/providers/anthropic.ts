@@ -49,9 +49,11 @@ Your job is to:
 1. Describe what you see on screen
 2. Identify UI elements relevant to the current instruction
 3. Determine if the success criteria has been met
-4. If the user seems stuck, provide helpful guidance
+4. Extract any specific data mentioned in the success criteria (handles, numbers, metrics, etc.)
+5. If the user seems stuck, provide helpful guidance
 
-Be concise and helpful. Focus on actionable observations.`;
+Be concise and helpful. Focus on actionable observations.
+CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.`;
 
     const userPrompt = `Current instruction for the user: "${currentInstruction}"
 
@@ -63,6 +65,7 @@ Please analyze this screenshot and provide:
 3. Whether the success criteria appears to be met (true/false)
 4. Your confidence level (0.0 to 1.0)
 5. If the criteria is NOT met, a suggested action for the user
+6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs
 
 Respond in JSON format:
 {
@@ -70,7 +73,8 @@ Respond in JSON format:
   "detectedElements": ["string"],
   "matchesSuccessCriteria": boolean,
   "confidence": number,
-  "suggestedAction": "string or null"
+  "suggestedAction": "string or null",
+  "extractedData": [{"label": "string", "value": "string"}]
 }`;
 
     try {
@@ -122,6 +126,9 @@ Respond in JSON format:
         matchesSuccessCriteria: Boolean(result.matchesSuccessCriteria),
         confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
         suggestedAction: result.suggestedAction || undefined,
+        extractedData: Array.isArray(result.extractedData)
+          ? result.extractedData.filter((d: any) => d.label && d.value)
+          : undefined,
       };
     } catch (error) {
       console.error("[Anthropic Vision] Analysis error:", error);
@@ -207,6 +214,7 @@ const DEFAULT_VOICE_SETTINGS = {
 class ElevenLabsTTSProvider implements TTSProvider {
   private apiKey: string;
   private defaultVoiceId: string;
+  private modelId: string;
 
   constructor() {
     const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -215,6 +223,7 @@ class ElevenLabsTTSProvider implements TTSProvider {
     }
     this.apiKey = apiKey;
     this.defaultVoiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // Rachel
+    this.modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
   }
 
   async generateSpeech(text: string, voiceId?: string): Promise<string> {
@@ -231,7 +240,7 @@ class ElevenLabsTTSProvider implements TTSProvider {
         },
         body: JSON.stringify({
           text,
-          model_id: "eleven_monolingual_v1",
+          model_id: this.modelId,
           voice_settings: DEFAULT_VOICE_SETTINGS,
         }),
       }
@@ -267,7 +276,7 @@ class ElevenLabsTTSProvider implements TTSProvider {
         },
         body: JSON.stringify({
           text,
-          model_id: "eleven_monolingual_v1",
+          model_id: this.modelId,
           voice_settings: DEFAULT_VOICE_SETTINGS,
         }),
       }

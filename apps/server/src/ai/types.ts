@@ -2,12 +2,18 @@
  * AI Provider Types
  */
 
+export interface ExtractedDataItem {
+  label: string;
+  value: string;
+}
+
 export interface FrameAnalysisResult {
   description: string;
   detectedElements: string[];
   matchesSuccessCriteria: boolean;
   confidence: number;
   suggestedAction?: string;
+  extractedData?: ExtractedDataItem[];
 }
 
 export interface QuickCheckResult {

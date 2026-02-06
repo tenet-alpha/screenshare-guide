@@ -35,7 +35,7 @@ describe("TTS Service", () => {
     it("should use correct request body structure", () => {
       const requestBody = {
         text: "Hello world",
-        model_id: "eleven_monolingual_v1",
+        model_id: "eleven_turbo_v2_5",
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75,
@@ -45,7 +45,7 @@ describe("TTS Service", () => {
       };
 
       expect(requestBody.text).toBe("Hello world");
-      expect(requestBody.model_id).toBe("eleven_monolingual_v1");
+      expect(requestBody.model_id).toBe("eleven_turbo_v2_5");
       expect(requestBody.voice_settings.stability).toBe(0.5);
     });
 

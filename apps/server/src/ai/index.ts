@@ -9,7 +9,7 @@ import type { VisionProvider, TTSProvider, VisionProviderType, TTSProviderType }
 import { createAnthropicVisionProvider, createElevenLabsTTSProvider } from "./providers/anthropic";
 import { createAzureVisionProvider, createAzureTTSProvider } from "./providers/azure";
 
-export type { FrameAnalysisResult, QuickCheckResult, VoiceInfo } from "./types";
+export type { FrameAnalysisResult, QuickCheckResult, VoiceInfo, ExtractedDataItem } from "./types";
 
 let _visionProvider: VisionProvider | null = null;
 let _ttsProvider: TTSProvider | null = null;

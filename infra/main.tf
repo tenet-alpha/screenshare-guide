@@ -96,8 +96,9 @@ resource "azurerm_linux_web_app" "main" {
     "VISION_PROVIDER"                = "azure"
     "TTS_PROVIDER"                   = "elevenlabs"
     "AZURE_OPENAI_ENDPOINT"          = var.azure_openai_endpoint
-    "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5.2-codex"
+    "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5.2"
     "ELEVENLABS_VOICE_ID"            = "21m00Tcm4TlvDq8ikWAM"
+    "ELEVENLABS_MODEL_ID"            = "eleven_turbo_v2_5"
     "AZURE_SPEECH_ENDPOINT"          = var.azure_speech_endpoint
     "AZURE_SPEECH_VOICE_NAME"        = "en-US-JennyNeural"
     "AZURE_STORAGE_CONTAINER_NAME"   = azurerm_storage_container.recordings.name

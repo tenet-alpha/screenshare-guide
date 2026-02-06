@@ -3,6 +3,7 @@
  */
 
 const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
 
 // Default voice settings
 const DEFAULT_VOICE_SETTINGS = {
@@ -41,7 +42,7 @@ export async function generateSpeech(
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_monolingual_v1",
+        model_id: ELEVENLABS_MODEL_ID,
         voice_settings: DEFAULT_VOICE_SETTINGS,
       }),
     }
@@ -86,7 +87,7 @@ export async function* generateSpeechStream(
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_monolingual_v1",
+        model_id: ELEVENLABS_MODEL_ID,
         voice_settings: DEFAULT_VOICE_SETTINGS,
       }),
     }
