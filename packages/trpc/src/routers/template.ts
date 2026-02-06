@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, publicProcedure } from "../index";
+import { router, publicProcedure } from "../trpc";
 import { templates, type TemplateStep } from "@screenshare-guide/db";
 import { eq } from "drizzle-orm";
 

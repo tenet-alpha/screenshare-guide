@@ -1,19 +1,10 @@
-import { initTRPC } from "@trpc/server";
-import superjson from "superjson";
+import { router } from "./trpc";
 import { templateRouter } from "./routers/template";
 import { sessionRouter } from "./routers/session";
 import { recordingRouter } from "./routers/recording";
-import type { Context } from "./context";
 
-// Initialize tRPC with context
-const t = initTRPC.context<Context>().create({
-  transformer: superjson,
-});
-
-// Export reusable router and procedure helpers
-export const router = t.router;
-export const publicProcedure = t.procedure;
-export const middleware = t.middleware;
+// Re-export tRPC primitives
+export { router, publicProcedure, middleware } from "./trpc";
 
 // Main app router combining all sub-routers
 export const appRouter = router({

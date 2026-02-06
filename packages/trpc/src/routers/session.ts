@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, publicProcedure } from "../index";
+import { router, publicProcedure } from "../trpc";
 import { sessions, templates, type SessionMetadata } from "@screenshare-guide/db";
 import { eq, and, gt } from "drizzle-orm";
 import { nanoid } from "nanoid";
