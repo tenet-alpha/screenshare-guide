@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { analyzeFrame, generateSpeech } from "./ai";
 import { db, sessions, templates } from "@screenshare-guide/db";
 import { eq } from "drizzle-orm";
+import { logWebSocket, logAI, log } from "./lib/logger";
 
 // Session state machine
 interface SessionState {
@@ -24,6 +25,24 @@ const ANALYSIS_DEBOUNCE_MS = 2000;
 // Consecutive successful analyses needed to advance
 const SUCCESS_THRESHOLD = 2;
 
+// Rate limiting for WebSocket messages
+const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
+const WS_RATE_LIMIT_WINDOW = 10000; // 10 seconds
+const WS_RATE_LIMIT_MAX = 20; // 20 messages per window
+
+function checkWsRateLimit(token: string): boolean {
+  const now = Date.now();
+  let entry = messageRateLimit.get(token);
+
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + WS_RATE_LIMIT_WINDOW };
+    messageRateLimit.set(token, entry);
+  }
+
+  entry.count++;
+  return entry.count <= WS_RATE_LIMIT_MAX;
+}
+
 export const websocketHandler = new Elysia()
   .ws("/ws/:token", {
     // Validate the token parameter
@@ -34,7 +53,7 @@ export const websocketHandler = new Elysia()
     // Handle WebSocket connection open
     async open(ws) {
       const { token } = ws.data.params;
-      console.log(`[WS] Connection opened for token: ${token}`);
+      logWebSocket("open", token);
 
       try {
         // Validate session
@@ -44,12 +63,14 @@ export const websocketHandler = new Elysia()
           .where(eq(sessions.token, token));
 
         if (!session) {
+          log.warn("Session not found for WebSocket", { token: token.substring(0, 4) });
           ws.send(JSON.stringify({ type: "error", message: "Session not found" }));
           ws.close();
           return;
         }
 
         if (session.status === "expired" || new Date() > session.expiresAt) {
+          log.warn("Expired session WebSocket attempt", { sessionId: session.id });
           ws.send(JSON.stringify({ type: "error", message: "Session has expired" }));
           ws.close();
           return;
@@ -62,6 +83,7 @@ export const websocketHandler = new Elysia()
           .where(eq(templates.id, session.templateId));
 
         if (!template) {
+          log.error("Template not found for session", { sessionId: session.id, templateId: session.templateId });
           ws.send(JSON.stringify({ type: "error", message: "Template not found" }));
           ws.close();
           return;
@@ -83,6 +105,12 @@ export const websocketHandler = new Elysia()
 
         activeSessions.set(token, state);
 
+        log.info("WebSocket session initialized", {
+          sessionId: session.id,
+          totalSteps: steps.length,
+          currentStep: session.currentStep,
+        });
+
         // Send initial state
         ws.send(
           JSON.stringify({
@@ -99,7 +127,7 @@ export const websocketHandler = new Elysia()
           await sendInstruction(ws, steps[0].instruction, state);
         }
       } catch (error) {
-        console.error("[WS] Error during connection setup:", error);
+        log.error("WebSocket connection setup failed", error as Error);
         ws.send(JSON.stringify({ type: "error", message: "Internal error" }));
         ws.close();
       }
@@ -115,8 +143,17 @@ export const websocketHandler = new Elysia()
         return;
       }
 
+      // Rate limiting
+      if (!checkWsRateLimit(token)) {
+        log.warn("WebSocket rate limit exceeded", { token: token.substring(0, 4) });
+        ws.send(JSON.stringify({ type: "error", message: "Rate limit exceeded" }));
+        return;
+      }
+
       try {
         const data = typeof message === "string" ? JSON.parse(message) : message;
+
+        logWebSocket("message", token, { type: data.type });
 
         // Handle different message types
         switch (data.type) {
@@ -137,10 +174,10 @@ export const websocketHandler = new Elysia()
             break;
 
           default:
-            console.log(`[WS] Unknown message type: ${data.type}`);
+            log.debug("Unknown WebSocket message type", { type: data.type });
         }
       } catch (error) {
-        console.error("[WS] Error processing message:", error);
+        log.error("WebSocket message processing failed", error as Error);
         ws.send(JSON.stringify({ type: "error", message: "Failed to process message" }));
       }
     },
@@ -148,8 +185,9 @@ export const websocketHandler = new Elysia()
     // Handle WebSocket close
     close(ws) {
       const { token } = ws.data.params;
-      console.log(`[WS] Connection closed for token: ${token}`);
+      logWebSocket("close", token);
       activeSessions.delete(token);
+      messageRateLimit.delete(token);
     },
   });
 
@@ -185,13 +223,16 @@ async function handleFrame(
 
   ws.send(JSON.stringify({ type: "analyzing" }));
 
+  const startTime = Date.now();
   try {
-    // Analyze the frame with Claude
+    // Analyze the frame with AI provider
     const analysis = await analyzeFrame(
       imageData,
       currentStepData.instruction,
       currentStepData.successCriteria
     );
+
+    logAI("vision", "analyzeFrame", Date.now() - startTime);
 
     ws.send(
       JSON.stringify({
@@ -210,6 +251,12 @@ async function handleFrame(
         state.currentStep++;
         state.consecutiveSuccesses = 0;
 
+        log.info("Session step advanced", {
+          sessionId: state.sessionId,
+          newStep: state.currentStep,
+          totalSteps: state.totalSteps,
+        });
+
         // Update database
         await db
           .update(sessions)
@@ -223,6 +270,8 @@ async function handleFrame(
             .update(sessions)
             .set({ status: "completed", updatedAt: new Date() })
             .where(eq(sessions.token, token));
+
+          log.info("Session completed", { sessionId: state.sessionId });
 
           ws.send(JSON.stringify({ type: "completed", message: "All steps completed!" }));
           await sendInstruction(ws, "Great job! You've completed all the steps.", state);
@@ -251,7 +300,7 @@ async function handleFrame(
 
     state.status = "waiting";
   } catch (error) {
-    console.error("[WS] Analysis error:", error);
+    logAI("vision", "analyzeFrame", Date.now() - startTime, error as Error);
     state.status = "waiting";
     ws.send(JSON.stringify({ type: "error", message: "Analysis failed" }));
   }
@@ -277,6 +326,11 @@ async function handleHintRequest(ws: any, state: SessionState) {
  * Handle manual step skip
  */
 async function handleSkipStep(ws: any, state: SessionState, token: string) {
+  log.info("Step skipped by user", {
+    sessionId: state.sessionId,
+    skippedStep: state.currentStep,
+  });
+
   state.currentStep++;
   state.consecutiveSuccesses = 0;
 
@@ -308,8 +362,11 @@ async function handleSkipStep(ws: any, state: SessionState, token: string) {
 async function sendInstruction(ws: any, text: string, state: SessionState) {
   state.status = "speaking";
 
+  const startTime = Date.now();
   try {
     const audioBase64 = await generateSpeech(text);
+
+    logAI("tts", "generateSpeech", Date.now() - startTime);
 
     ws.send(
       JSON.stringify({
@@ -319,7 +376,7 @@ async function sendInstruction(ws: any, text: string, state: SessionState) {
       })
     );
   } catch (error) {
-    console.error("[WS] TTS error:", error);
+    logAI("tts", "generateSpeech", Date.now() - startTime, error as Error);
     // Fall back to text only
     ws.send(
       JSON.stringify({
