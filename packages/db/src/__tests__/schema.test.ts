@@ -140,7 +140,7 @@ describe.skipIf(shouldSkip)("Database Schema Integration", () => {
           token: "unique-token",
           templateId: template.id,
           expiresAt,
-        })
+        }).execute()
       ).rejects.toThrow();
     });
 
