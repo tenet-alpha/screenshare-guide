@@ -14,7 +14,8 @@
     "db:watch": "graphile-migrate watch",
     "db:reset": "graphile-migrate reset --erase",
     "test": "bun run --filter '*' test",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "start:prod": "bun run --filter @screenshare-guide/server start & bun run --filter @screenshare-guide/web start & wait"
   },
   "devDependencies": {
     "@types/pg": "^8.16.0",
