@@ -91,7 +91,7 @@ resource "azurerm_linux_web_app" "main" {
     # ── App Config (defaults) ──
     "PORT"                           = "3001"
     "NODE_ENV"                       = "production"
-    "CORS_ORIGIN"                    = "https://app-${var.project}-${var.environment}.azurewebsites.net"
+    "CORS_ORIGIN"                    = "https://${azurerm_static_web_app.frontend.default_host_name}"
     "LOG_LEVEL"                      = "info"
     "VISION_PROVIDER"                = "azure"
     "TTS_PROVIDER"                   = "elevenlabs"
@@ -190,6 +190,17 @@ locals {
     "ANTHROPIC-API-KEY",
     "AZURE-SPEECH-API-KEY",
   ]
+}
+
+# ─── Static Web App (Free tier — frontend) ──────────────────────────────────
+resource "azurerm_static_web_app" "frontend" {
+  name                = "swa-${var.project}-${var.environment}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = "eastus2"
+  sku_tier            = "Free"
+  sku_size            = "Free"
+
+  tags = azurerm_resource_group.main.tags
 }
 
 resource "azurerm_key_vault_secret" "secrets" {
