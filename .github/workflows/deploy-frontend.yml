@@ -27,24 +27,16 @@ jobs:
       - name: Build frontend
         run: bun run --filter @screenshare-guide/web build
 
-      - name: Prepare standalone output (resolve symlinks)
+      - name: Resolve symlinks in standalone output
         run: |
-          cd apps/web/.next/standalone
-          # Remove broken symlinks first
-          find . -type l ! -exec test -e {} \; -delete
-          # Resolve remaining valid symlinks to real files
-          find . -type l | while IFS= read -r link; do
-            target=$(readlink -f "$link")
-            rm "$link"
-            if [ -d "$target" ]; then
-              cp -r "$target" "$link"
-            elif [ -f "$target" ]; then
-              cp "$target" "$link"
-            fi
-          done
-          cd /home/runner/work/screenshare-guide/screenshare-guide
-          # Copy static assets into standalone
-          cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
+          # cp -rL dereferences all symlinks into real copies
+          cp -rL apps/web/.next/standalone /tmp/standalone-real
+          rm -rf apps/web/.next/standalone
+          mv /tmp/standalone-real apps/web/.next/standalone
+          
+          # Copy static assets required by Next.js
+          mkdir -p apps/web/.next/standalone/apps/web/public
+          cp -r apps/web/public/* apps/web/.next/standalone/apps/web/public/ 2>/dev/null || true
           mkdir -p apps/web/.next/standalone/apps/web/.next
           cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
 
