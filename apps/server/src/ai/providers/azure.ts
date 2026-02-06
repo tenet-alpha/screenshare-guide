@@ -117,14 +117,25 @@ Respond in JSON format only:
         ],
       });
 
-      const content = response.choices[0]?.message?.content;
+      const choice = response.choices[0];
+      const content = choice?.message?.content;
+      const refusal = choice?.message?.refusal;
+      const finishReason = choice?.finish_reason;
+
+      if (refusal) {
+        console.error("[Azure OpenAI Vision] Model refused:", refusal);
+        throw new Error(`Model refused: ${refusal}`);
+      }
+
       if (!content) {
-        throw new Error("No response from Azure OpenAI");
+        console.error("[Azure OpenAI Vision] No content. finish_reason:", finishReason, "full message:", JSON.stringify(choice?.message));
+        throw new Error(`No response from Azure OpenAI (finish_reason: ${finishReason})`);
       }
 
       // Parse JSON from response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        console.error("[Azure OpenAI Vision] Could not parse JSON from:", content.substring(0, 200));
         throw new Error("Could not parse JSON from response");
       }
 
