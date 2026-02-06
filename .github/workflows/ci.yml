@@ -56,6 +56,8 @@ jobs:
         run: bunx graphile-migrate migrate
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/test
+          ROOT_DATABASE_URL: postgres://test:test@localhost:5432/postgres
+          SHADOW_DATABASE_URL: postgres://test:test@localhost:5432/test_shadow
 
       - name: Run tests
         run: bun run test
