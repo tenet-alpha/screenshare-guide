@@ -16,6 +16,8 @@ provider "azurerm" {
   subscription_id = "d07bc077-0510-4962-b8e6-13b8d52633ef"
 }
 
+data "azurerm_client_config" "current" {}
+
 # ─── Random suffix for globally unique names ────────────────────────────────
 resource "random_string" "pg_suffix" {
   length  = 4
@@ -64,6 +66,10 @@ resource "azurerm_linux_web_app" "main" {
   location            = azurerm_resource_group.main.location
   service_plan_id     = azurerm_service_plan.main.id
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
     always_on = true
 
@@ -78,13 +84,33 @@ resource "azurerm_linux_web_app" "main" {
   }
 
   app_settings = {
+    # ── Platform ──
     "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
     "DOCKER_ENABLE_CI"                    = "true"
-    "PORT"                                = "3001"
-    "NODE_ENV"                            = "production"
-    "DATABASE_URL"                        = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
-    "AZURE_STORAGE_CONNECTION_STRING"     = azurerm_storage_account.main.primary_connection_string
-    "AZURE_STORAGE_CONTAINER"             = azurerm_storage_container.recordings.name
+
+    # ── App Config (defaults) ──
+    "PORT"                           = "3001"
+    "NODE_ENV"                       = "production"
+    "CORS_ORIGIN"                    = "https://app-${var.project}-${var.environment}.azurewebsites.net"
+    "LOG_LEVEL"                      = "info"
+    "VISION_PROVIDER"                = "azure"
+    "TTS_PROVIDER"                   = "elevenlabs"
+    "AZURE_OPENAI_ENDPOINT"          = var.azure_openai_endpoint
+    "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5.2-codex"
+    "ELEVENLABS_VOICE_ID"            = "21m00Tcm4TlvDq8ikWAM"
+    "AZURE_SPEECH_ENDPOINT"          = var.azure_speech_endpoint
+    "AZURE_SPEECH_VOICE_NAME"        = "en-US-JennyNeural"
+    "AZURE_STORAGE_CONTAINER_NAME"   = azurerm_storage_container.recordings.name
+
+    # ── Infra secrets (from Terraform state, not user-managed) ──
+    "DATABASE_URL"                   = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
+    "AZURE_STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
+
+    # ── API Key secrets (Key Vault references — you set values manually) ──
+    "AZURE_OPENAI_API_KEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["AZURE-OPENAI-API-KEY"].versionless_id})"
+    "ELEVENLABS_API_KEY"   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["ELEVENLABS-API-KEY"].versionless_id})"
+    "ANTHROPIC_API_KEY"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["ANTHROPIC-API-KEY"].versionless_id})"
+    "AZURE_SPEECH_API_KEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["AZURE-SPEECH-API-KEY"].versionless_id})"
   }
 
   tags = azurerm_resource_group.main.tags
@@ -136,4 +162,43 @@ resource "azurerm_storage_container" "recordings" {
   name                  = "screenshare-recordings"
   storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
+}
+
+# ─── Key Vault ──────────────────────────────────────────────────────────────
+resource "azurerm_key_vault" "main" {
+  name                       = "kv-${var.project}-${var.environment}"
+  location                   = azurerm_resource_group.main.location
+  resource_group_name        = azurerm_resource_group.main.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+  enable_rbac_authorization  = true
+
+  tags = azurerm_resource_group.main.tags
+
+  # NOTE: Role assignments managed manually (Contributor can't create them).
+  # See commands in infra/README.md
+}
+
+# Secret placeholders — you set real values via az CLI or Portal
+# lifecycle ignore_changes prevents Terraform from overwriting your manual values
+locals {
+  secret_names = [
+    "AZURE-OPENAI-API-KEY",
+    "ELEVENLABS-API-KEY",
+    "ANTHROPIC-API-KEY",
+    "AZURE-SPEECH-API-KEY",
+  ]
+}
+
+resource "azurerm_key_vault_secret" "secrets" {
+  for_each     = toset(local.secret_names)
+  name         = each.value
+  value        = "PLACEHOLDER"
+  key_vault_id = azurerm_key_vault.main.id
+
+  lifecycle {
+    ignore_changes = [value]
+  }
 }
