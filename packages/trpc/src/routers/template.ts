@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc";
-import { templates, type TemplateStep } from "@screenshare-guide/db";
-import { eq } from "drizzle-orm";
+import type { TemplateStep } from "@screenshare-guide/db";
 
 // Validation schemas
 const templateStepSchema = z.object({
@@ -30,14 +29,15 @@ export const templateRouter = router({
   create: publicProcedure
     .input(createTemplateSchema)
     .mutation(async ({ ctx, input }) => {
-      const [template] = await ctx.db
-        .insert(templates)
+      const template = await ctx.db
+        .insertInto("templates")
         .values({
           name: input.name,
-          description: input.description,
-          steps: input.steps as TemplateStep[],
+          description: input.description ?? null,
+          steps: JSON.stringify(input.steps),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return template;
     }),
@@ -46,7 +46,11 @@ export const templateRouter = router({
    * Get all templates
    */
   list: publicProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(templates).orderBy(templates.createdAt);
+    return ctx.db
+      .selectFrom("templates")
+      .selectAll()
+      .orderBy("created_at", "asc")
+      .execute();
   }),
 
   /**
@@ -55,10 +59,11 @@ export const templateRouter = router({
   get: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [template] = await ctx.db
-        .select()
-        .from(templates)
-        .where(eq(templates.id, input.id));
+      const template = await ctx.db
+        .selectFrom("templates")
+        .selectAll()
+        .where("id", "=", input.id)
+        .executeTakeFirst();
 
       if (!template) {
         throw new Error("Template not found");
@@ -75,15 +80,17 @@ export const templateRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;
 
-      const [template] = await ctx.db
-        .update(templates)
-        .set({
-          ...updates,
-          steps: updates.steps as TemplateStep[] | undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(templates.id, id))
-        .returning();
+      const set: Record<string, any> = { updated_at: new Date() };
+      if (updates.name !== undefined) set.name = updates.name;
+      if (updates.description !== undefined) set.description = updates.description;
+      if (updates.steps !== undefined) set.steps = JSON.stringify(updates.steps);
+
+      const template = await ctx.db
+        .updateTable("templates")
+        .set(set)
+        .where("id", "=", id)
+        .returningAll()
+        .executeTakeFirst();
 
       if (!template) {
         throw new Error("Template not found");
@@ -98,10 +105,11 @@ export const templateRouter = router({
   delete: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [template] = await ctx.db
-        .delete(templates)
-        .where(eq(templates.id, input.id))
-        .returning();
+      const template = await ctx.db
+        .deleteFrom("templates")
+        .where("id", "=", input.id)
+        .returningAll()
+        .executeTakeFirst();
 
       if (!template) {
         throw new Error("Template not found");

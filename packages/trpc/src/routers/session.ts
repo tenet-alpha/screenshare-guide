@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc";
-import { sessions, templates, type SessionMetadata } from "@screenshare-guide/db";
-import { eq, and, gt } from "drizzle-orm";
+import type { SessionMetadata } from "@screenshare-guide/db";
 import { nanoid } from "nanoid";
 
 // Default session expiry: 24 hours
@@ -38,10 +37,11 @@ export const sessionRouter = router({
     .input(createSessionSchema)
     .mutation(async ({ ctx, input }) => {
       // Verify template exists
-      const [template] = await ctx.db
-        .select()
-        .from(templates)
-        .where(eq(templates.id, input.templateId));
+      const template = await ctx.db
+        .selectFrom("templates")
+        .selectAll()
+        .where("id", "=", input.templateId)
+        .executeTakeFirst();
 
       if (!template) {
         throw new Error("Template not found");
@@ -54,15 +54,16 @@ export const sessionRouter = router({
       const expiryHours = input.expiryHours ?? DEFAULT_EXPIRY_HOURS;
       const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
-      const [session] = await ctx.db
-        .insert(sessions)
+      const session = await ctx.db
+        .insertInto("sessions")
         .values({
           token,
-          templateId: input.templateId,
-          expiresAt,
-          metadata: input.metadata as SessionMetadata,
+          template_id: input.templateId,
+          expires_at: expiresAt,
+          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return {
         ...session,
@@ -77,37 +78,40 @@ export const sessionRouter = router({
   getByToken: publicProcedure
     .input(z.object({ token: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      const [session] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.token, input.token));
+      const session = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("token", "=", input.token)
+        .executeTakeFirst();
 
       if (!session) {
         throw new Error("Session not found");
       }
 
       // Check if expired
-      if (new Date() > session.expiresAt) {
+      if (new Date() > session.expires_at) {
         // Update status to expired if not already
         if (session.status !== "expired") {
           await ctx.db
-            .update(sessions)
-            .set({ status: "expired", updatedAt: new Date() })
-            .where(eq(sessions.id, session.id));
+            .updateTable("sessions")
+            .set({ status: "expired", updated_at: new Date() })
+            .where("id", "=", session.id)
+            .execute();
         }
         throw new Error("Session has expired");
       }
 
       // Check if already used (one-time use)
-      if (session.usedAt && session.status === "completed") {
+      if (session.used_at && session.status === "completed") {
         throw new Error("Session has already been used");
       }
 
       // Get template data
-      const [template] = await ctx.db
-        .select()
-        .from(templates)
-        .where(eq(templates.id, session.templateId));
+      const template = await ctx.db
+        .selectFrom("templates")
+        .selectAll()
+        .where("id", "=", session.template_id)
+        .executeTakeFirst();
 
       return {
         ...session,
@@ -121,19 +125,21 @@ export const sessionRouter = router({
   get: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const [session] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, input.id));
+      const session = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("id", "=", input.id)
+        .executeTakeFirst();
 
       if (!session) {
         throw new Error("Session not found");
       }
 
-      const [template] = await ctx.db
-        .select()
-        .from(templates)
-        .where(eq(templates.id, session.templateId));
+      const template = await ctx.db
+        .selectFrom("templates")
+        .selectAll()
+        .where("id", "=", session.template_id)
+        .executeTakeFirst();
 
       return {
         ...session,
@@ -155,24 +161,22 @@ export const sessionRouter = router({
         .optional()
     )
     .query(async ({ ctx, input }) => {
-      let query = ctx.db.select().from(sessions);
+      let query = ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .orderBy("created_at", "asc");
 
-      // Note: Drizzle doesn't chain where clauses the same way
-      // For MVP, we'll fetch all and filter in JS
-      const allSessions = await query.orderBy(sessions.createdAt);
+      if (input?.templateId) {
+        query = query.where("template_id", "=", input.templateId);
+      }
+      if (input?.status) {
+        query = query.where("status", "=", input.status);
+      }
+      if (!input?.includeExpired) {
+        query = query.where("status", "!=", "expired");
+      }
 
-      return allSessions.filter((session) => {
-        if (input?.templateId && session.templateId !== input.templateId) {
-          return false;
-        }
-        if (input?.status && session.status !== input.status) {
-          return false;
-        }
-        if (!input?.includeExpired && session.status === "expired") {
-          return false;
-        }
-        return true;
-      });
+      return query.execute();
     }),
 
   /**
@@ -181,32 +185,34 @@ export const sessionRouter = router({
   start: publicProcedure
     .input(z.object({ token: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [session] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.token, input.token));
+      const session = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("token", "=", input.token)
+        .executeTakeFirst();
 
       if (!session) {
         throw new Error("Session not found");
       }
 
-      if (session.status === "expired" || new Date() > session.expiresAt) {
+      if (session.status === "expired" || new Date() > session.expires_at) {
         throw new Error("Session has expired");
       }
 
-      if (session.usedAt) {
+      if (session.used_at) {
         throw new Error("Session has already been started");
       }
 
-      const [updated] = await ctx.db
-        .update(sessions)
+      const updated = await ctx.db
+        .updateTable("sessions")
         .set({
           status: "active",
-          usedAt: new Date(),
-          updatedAt: new Date(),
+          used_at: new Date(),
+          updated_at: new Date(),
         })
-        .where(eq(sessions.id, session.id))
-        .returning();
+        .where("id", "=", session.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return updated;
     }),
@@ -220,10 +226,11 @@ export const sessionRouter = router({
       const { id, metadata: newMetadata, ...updates } = input;
 
       // Get existing session for metadata merge
-      const [existing] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, id));
+      const existing = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("id", "=", id)
+        .executeTakeFirst();
 
       if (!existing) {
         throw new Error("Session not found");
@@ -234,15 +241,17 @@ export const sessionRouter = router({
         ? { ...(existing.metadata || {}), ...newMetadata }
         : existing.metadata;
 
-      const [session] = await ctx.db
-        .update(sessions)
-        .set({
-          ...updates,
-          metadata: mergedMetadata as SessionMetadata,
-          updatedAt: new Date(),
-        })
-        .where(eq(sessions.id, id))
-        .returning();
+      const set: Record<string, any> = { updated_at: new Date() };
+      if (updates.status !== undefined) set.status = updates.status;
+      if (updates.currentStep !== undefined) set.current_step = updates.currentStep;
+      set.metadata = mergedMetadata ? JSON.stringify(mergedMetadata) : null;
+
+      const session = await ctx.db
+        .updateTable("sessions")
+        .set(set)
+        .where("id", "=", id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return session;
     }),
@@ -258,27 +267,31 @@ export const sessionRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [existing] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, input.id));
+      const existing = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("id", "=", input.id)
+        .executeTakeFirst();
 
       if (!existing) {
         throw new Error("Session not found");
       }
 
-      const [session] = await ctx.db
-        .update(sessions)
+      const mergedMetadata = {
+        ...(existing.metadata || {}),
+        totalDurationMs: input.totalDurationMs,
+      } as SessionMetadata;
+
+      const session = await ctx.db
+        .updateTable("sessions")
         .set({
           status: "completed",
-          metadata: {
-            ...(existing.metadata || {}),
-            totalDurationMs: input.totalDurationMs,
-          } as SessionMetadata,
-          updatedAt: new Date(),
+          metadata: JSON.stringify(mergedMetadata),
+          updated_at: new Date(),
         })
-        .where(eq(sessions.id, input.id))
-        .returning();
+        .where("id", "=", input.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return session;
     }),

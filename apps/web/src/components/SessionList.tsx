@@ -88,13 +88,13 @@ export function SessionList() {
                 </span>
               </td>
               <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400">
-                Step {session.currentStep + 1}
+                Step {session.current_step + 1}
               </td>
               <td className="py-3 px-4 text-sm text-gray-500">
-                {new Date(session.createdAt).toLocaleDateString()}
+                {new Date(session.created_at).toLocaleDateString()}
               </td>
               <td className="py-3 px-4 text-sm text-gray-500">
-                {new Date(session.expiresAt).toLocaleDateString()}
+                {new Date(session.expires_at).toLocaleDateString()}
               </td>
               <td className="py-3 px-4 text-right">
                 <div className="flex gap-2 justify-end">

@@ -1,104 +1,7 @@
-import { pgTable, text, timestamp, boolean, integer, jsonb, uuid } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import type { ColumnType, Generated, Insertable, Selectable, Updateable } from "kysely";
 
-/**
- * Templates define reusable instruction sets for screenshare sessions.
- * Each template has a series of steps that guide users through tasks.
- */
-export const templates = pgTable("templates", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  description: text("description"),
-  // Steps are stored as JSON array: [{ instruction: string, successCriteria: string }]
-  steps: jsonb("steps").$type<TemplateStep[]>().notNull().default([]),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+// ─── JSON column types ──────────────────────────────────────────────
 
-/**
- * Sessions are individual screenshare instances created from templates.
- * Each session has a unique token for URL access.
- */
-export const sessions = pgTable("sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  token: text("token").notNull().unique(), // nanoid token for URL
-  templateId: uuid("template_id").references(() => templates.id).notNull(),
-  status: text("status", { enum: ["pending", "active", "completed", "expired"] }).notNull().default("pending"),
-  currentStep: integer("current_step").notNull().default(0),
-  // Metadata about the session
-  metadata: jsonb("metadata").$type<SessionMetadata>(),
-  // One-time use enforcement
-  usedAt: timestamp("used_at"),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-/**
- * Recordings store chunks of screen capture data in R2.
- * Each recording belongs to a session.
- */
-export const recordings = pgTable("recordings", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  sessionId: uuid("session_id").references(() => sessions.id).notNull(),
-  // R2 storage key for the recording chunk
-  storageKey: text("storage_key").notNull(),
-  // Chunk ordering
-  chunkIndex: integer("chunk_index").notNull(),
-  // Duration in milliseconds
-  durationMs: integer("duration_ms"),
-  // File size in bytes
-  sizeBytes: integer("size_bytes"),
-  // MIME type (video/webm, etc.)
-  mimeType: text("mime_type").notNull().default("video/webm"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-/**
- * Frame samples for AI analysis.
- * Stores individual frames extracted from recordings for vision analysis.
- */
-export const frameSamples = pgTable("frame_samples", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  sessionId: uuid("session_id").references(() => sessions.id).notNull(),
-  // R2 storage key for the frame image
-  storageKey: text("storage_key").notNull(),
-  // Timestamp within the session when frame was captured
-  capturedAt: timestamp("captured_at").notNull(),
-  // AI analysis result
-  analysisResult: jsonb("analysis_result").$type<FrameAnalysis>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Relations
-export const templatesRelations = relations(templates, ({ many }) => ({
-  sessions: many(sessions),
-}));
-
-export const sessionsRelations = relations(sessions, ({ one, many }) => ({
-  template: one(templates, {
-    fields: [sessions.templateId],
-    references: [templates.id],
-  }),
-  recordings: many(recordings),
-  frameSamples: many(frameSamples),
-}));
-
-export const recordingsRelations = relations(recordings, ({ one }) => ({
-  session: one(sessions, {
-    fields: [recordings.sessionId],
-    references: [sessions.id],
-  }),
-}));
-
-export const frameSamplesRelations = relations(frameSamples, ({ one }) => ({
-  session: one(sessions, {
-    fields: [frameSamples.sessionId],
-    references: [sessions.id],
-  }),
-}));
-
-// TypeScript types for JSON columns
 export interface TemplateStep {
   instruction: string;
   successCriteria: string;
@@ -119,3 +22,74 @@ export interface FrameAnalysis {
   confidence: number;
   suggestedAction?: string;
 }
+
+// ─── Table interfaces ───────────────────────────────────────────────
+
+export interface TemplatesTable {
+  id: Generated<string>;
+  name: string;
+  description: string | null;
+  steps: ColumnType<TemplateStep[], string | TemplateStep[], string | TemplateStep[]>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface SessionsTable {
+  id: Generated<string>;
+  token: string;
+  template_id: string;
+  status: Generated<string>;
+  current_step: Generated<number>;
+  metadata: ColumnType<SessionMetadata | null, string | SessionMetadata | null, string | SessionMetadata | null>;
+  used_at: Date | null;
+  expires_at: Date;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface RecordingsTable {
+  id: Generated<string>;
+  session_id: string;
+  storage_key: string;
+  chunk_index: number;
+  duration_ms: number | null;
+  size_bytes: number | null;
+  mime_type: Generated<string>;
+  created_at: Generated<Date>;
+}
+
+export interface FrameSamplesTable {
+  id: Generated<string>;
+  session_id: string;
+  storage_key: string;
+  captured_at: Date;
+  analysis_result: ColumnType<FrameAnalysis | null, string | FrameAnalysis | null, string | FrameAnalysis | null>;
+  created_at: Generated<Date>;
+}
+
+// ─── Database interface ─────────────────────────────────────────────
+
+export interface Database {
+  templates: TemplatesTable;
+  sessions: SessionsTable;
+  recordings: RecordingsTable;
+  frame_samples: FrameSamplesTable;
+}
+
+// ─── Convenience row types ──────────────────────────────────────────
+
+export type Template = Selectable<TemplatesTable>;
+export type NewTemplate = Insertable<TemplatesTable>;
+export type TemplateUpdate = Updateable<TemplatesTable>;
+
+export type Session = Selectable<SessionsTable>;
+export type NewSession = Insertable<SessionsTable>;
+export type SessionUpdate = Updateable<SessionsTable>;
+
+export type Recording = Selectable<RecordingsTable>;
+export type NewRecording = Insertable<RecordingsTable>;
+export type RecordingUpdate = Updateable<RecordingsTable>;
+
+export type FrameSample = Selectable<FrameSamplesTable>;
+export type NewFrameSample = Insertable<FrameSamplesTable>;
+export type FrameSampleUpdate = Updateable<FrameSamplesTable>;

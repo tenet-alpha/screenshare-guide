@@ -1,8 +1,7 @@
-import { db, type Database } from "@screenshare-guide/db";
+import { db, type DB } from "@screenshare-guide/db";
 
 export interface Context {
-  db: Database;
-  // Add more context properties as needed (e.g., user, session)
+  db: DB;
 }
 
 /**

@@ -1,6 +1,6 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as schema from "./schema";
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
+import type { Database } from "./schema";
 
 // Re-export schema types
 export * from "./schema";
@@ -12,9 +12,13 @@ if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is required");
 }
 
-// For migrations and queries
-const queryClient = postgres(connectionString);
-export const db = drizzle(queryClient, { schema });
+const dialect = new PostgresDialect({
+  pool: new pg.Pool({
+    connectionString,
+  }),
+});
 
-// Export types for use in other packages
-export type Database = typeof db;
+export const db = new Kysely<Database>({ dialect });
+
+// Export the typed database type for use in context
+export type DB = Kysely<Database>;

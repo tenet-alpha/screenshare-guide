@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc";
-import { recordings, frameSamples, sessions, type FrameAnalysis } from "@screenshare-guide/db";
-import { eq } from "drizzle-orm";
+import type { FrameAnalysis } from "@screenshare-guide/db";
 
 const createRecordingSchema = z.object({
   sessionId: z.string().uuid(),
@@ -35,26 +34,28 @@ export const recordingRouter = router({
     .input(createRecordingSchema)
     .mutation(async ({ ctx, input }) => {
       // Verify session exists
-      const [session] = await ctx.db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.id, input.sessionId));
+      const session = await ctx.db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("id", "=", input.sessionId)
+        .executeTakeFirst();
 
       if (!session) {
         throw new Error("Session not found");
       }
 
-      const [recording] = await ctx.db
-        .insert(recordings)
+      const recording = await ctx.db
+        .insertInto("recordings")
         .values({
-          sessionId: input.sessionId,
-          storageKey: input.storageKey,
-          chunkIndex: input.chunkIndex,
-          durationMs: input.durationMs,
-          sizeBytes: input.sizeBytes,
-          mimeType: input.mimeType ?? "video/webm",
+          session_id: input.sessionId,
+          storage_key: input.storageKey,
+          chunk_index: input.chunkIndex,
+          duration_ms: input.durationMs ?? null,
+          size_bytes: input.sizeBytes ?? null,
+          mime_type: input.mimeType ?? "video/webm",
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return recording;
     }),
@@ -66,10 +67,11 @@ export const recordingRouter = router({
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.db
-        .select()
-        .from(recordings)
-        .where(eq(recordings.sessionId, input.sessionId))
-        .orderBy(recordings.chunkIndex);
+        .selectFrom("recordings")
+        .selectAll()
+        .where("session_id", "=", input.sessionId)
+        .orderBy("chunk_index", "asc")
+        .execute();
     }),
 
   /**
@@ -78,15 +80,18 @@ export const recordingRouter = router({
   createFrameSample: publicProcedure
     .input(createFrameSampleSchema)
     .mutation(async ({ ctx, input }) => {
-      const [frameSample] = await ctx.db
-        .insert(frameSamples)
+      const frameSample = await ctx.db
+        .insertInto("frame_samples")
         .values({
-          sessionId: input.sessionId,
-          storageKey: input.storageKey,
-          capturedAt: new Date(input.capturedAt),
-          analysisResult: input.analysisResult as FrameAnalysis,
+          session_id: input.sessionId,
+          storage_key: input.storageKey,
+          captured_at: new Date(input.capturedAt),
+          analysis_result: input.analysisResult
+            ? JSON.stringify(input.analysisResult)
+            : null,
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       return frameSample;
     }),
@@ -108,13 +113,14 @@ export const recordingRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [frameSample] = await ctx.db
-        .update(frameSamples)
+      const frameSample = await ctx.db
+        .updateTable("frame_samples")
         .set({
-          analysisResult: input.analysisResult as FrameAnalysis,
+          analysis_result: JSON.stringify(input.analysisResult),
         })
-        .where(eq(frameSamples.id, input.id))
-        .returning();
+        .where("id", "=", input.id)
+        .returningAll()
+        .executeTakeFirst();
 
       if (!frameSample) {
         throw new Error("Frame sample not found");
@@ -130,9 +136,10 @@ export const recordingRouter = router({
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       return ctx.db
-        .select()
-        .from(frameSamples)
-        .where(eq(frameSamples.sessionId, input.sessionId))
-        .orderBy(frameSamples.capturedAt);
+        .selectFrom("frame_samples")
+        .selectAll()
+        .where("session_id", "=", input.sessionId)
+        .orderBy("captured_at", "asc")
+        .execute();
     }),
 });

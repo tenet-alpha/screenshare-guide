@@ -1,7 +1,6 @@
 import { Elysia, t } from "elysia";
 import { analyzeFrame, generateSpeech } from "./ai";
-import { db, sessions, templates } from "@screenshare-guide/db";
-import { eq } from "drizzle-orm";
+import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
 
 // Session state machine
@@ -57,10 +56,11 @@ export const websocketHandler = new Elysia()
 
       try {
         // Validate session
-        const [session] = await db
-          .select()
-          .from(sessions)
-          .where(eq(sessions.token, token));
+        const session = await db
+          .selectFrom("sessions")
+          .selectAll()
+          .where("token", "=", token)
+          .executeTakeFirst();
 
         if (!session) {
           log.warn("Session not found for WebSocket", { token: token.substring(0, 4) });
@@ -69,7 +69,7 @@ export const websocketHandler = new Elysia()
           return;
         }
 
-        if (session.status === "expired" || new Date() > session.expiresAt) {
+        if (session.status === "expired" || new Date() > session.expires_at) {
           log.warn("Expired session WebSocket attempt", { sessionId: session.id });
           ws.send(JSON.stringify({ type: "error", message: "Session has expired" }));
           ws.close();
@@ -77,13 +77,14 @@ export const websocketHandler = new Elysia()
         }
 
         // Get template
-        const [template] = await db
-          .select()
-          .from(templates)
-          .where(eq(templates.id, session.templateId));
+        const template = await db
+          .selectFrom("templates")
+          .selectAll()
+          .where("id", "=", session.template_id)
+          .executeTakeFirst();
 
         if (!template) {
-          log.error("Template not found for session", { sessionId: session.id, templateId: session.templateId });
+          log.error("Template not found for session", { sessionId: session.id, templateId: session.template_id });
           ws.send(JSON.stringify({ type: "error", message: "Template not found" }));
           ws.close();
           return;
@@ -94,8 +95,8 @@ export const websocketHandler = new Elysia()
         // Initialize session state
         const state: SessionState = {
           sessionId: session.id,
-          templateId: session.templateId,
-          currentStep: session.currentStep,
+          templateId: session.template_id,
+          currentStep: session.current_step,
           totalSteps: steps.length,
           steps,
           status: "waiting",
@@ -108,7 +109,7 @@ export const websocketHandler = new Elysia()
         log.info("WebSocket session initialized", {
           sessionId: session.id,
           totalSteps: steps.length,
-          currentStep: session.currentStep,
+          currentStep: session.current_step,
         });
 
         // Send initial state
@@ -259,17 +260,19 @@ async function handleFrame(
 
         // Update database
         await db
-          .update(sessions)
-          .set({ currentStep: state.currentStep, updatedAt: new Date() })
-          .where(eq(sessions.token, token));
+          .updateTable("sessions")
+          .set({ current_step: state.currentStep, updated_at: new Date() })
+          .where("token", "=", token)
+          .execute();
 
         if (state.currentStep >= state.totalSteps) {
           // Session complete
           state.status = "completed";
           await db
-            .update(sessions)
-            .set({ status: "completed", updatedAt: new Date() })
-            .where(eq(sessions.token, token));
+            .updateTable("sessions")
+            .set({ status: "completed", updated_at: new Date() })
+            .where("token", "=", token)
+            .execute();
 
           log.info("Session completed", { sessionId: state.sessionId });
 
@@ -335,9 +338,10 @@ async function handleSkipStep(ws: any, state: SessionState, token: string) {
   state.consecutiveSuccesses = 0;
 
   await db
-    .update(sessions)
-    .set({ currentStep: state.currentStep, updatedAt: new Date() })
-    .where(eq(sessions.token, token));
+    .updateTable("sessions")
+    .set({ current_step: state.currentStep, updated_at: new Date() })
+    .where("token", "=", token)
+    .execute();
 
   if (state.currentStep >= state.totalSteps) {
     state.status = "completed";

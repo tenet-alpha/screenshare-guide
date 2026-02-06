@@ -17,7 +17,7 @@ AI-powered screen sharing guidance platform. Generate unique session links, guid
 - **Runtime**: Bun
 - **Backend**: Elysia (Bun-native web framework)
 - **API**: tRPC for CRUD, raw WebSockets for real-time
-- **Database**: PostgreSQL + Drizzle ORM
+- **Database**: PostgreSQL + Kysely (Graphile Migrate for migrations)
 - **Frontend**: Next.js 14 (App Router)
 - **Storage**: Azure Blob Storage
 - **AI**: Anthropic Claude or Azure OpenAI for vision; ElevenLabs or Azure Speech for TTS
@@ -41,7 +41,7 @@ screenshare-guide/
 │           ├── components/  # React components
 │           └── lib/         # Utilities, tRPC client
 ├── packages/
-│   ├── db/              # Drizzle schema + migrations
+│   ├── db/              # Kysely types + client
 │   └── trpc/            # Shared tRPC router
 ├── docker-compose.yml   # Local PostgreSQL
 └── .env.example         # Environment template
@@ -117,7 +117,7 @@ docker-compose up -d
 ### 6. Run Database Migrations
 
 ```bash
-bun run db:push
+bun run db:migrate
 ```
 
 ### 7. Start Development Servers
@@ -244,17 +244,14 @@ Messages from server:
 ### Database Commands
 
 ```bash
-# Generate migrations from schema changes
-bun run db:generate
-
-# Apply migrations
+# Apply all pending migrations
 bun run db:migrate
 
-# Push schema directly (dev only)
-bun run db:push
+# Watch for changes in current.sql (dev)
+bun run db:watch
 
-# Open Drizzle Studio
-bun run db:studio
+# Reset database (wipes all data!)
+bun run db:reset
 ```
 
 ### Type Checking

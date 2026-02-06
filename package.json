@@ -10,11 +10,18 @@
     "dev:server": "bun run --filter @screenshare-guide/server dev",
     "dev:web": "bun run --filter @screenshare-guide/web dev",
     "build": "bun run --filter '*' build",
-    "db:generate": "bun run --filter @screenshare-guide/db generate",
-    "db:migrate": "bun run --filter @screenshare-guide/db migrate",
-    "db:push": "bun run --filter @screenshare-guide/db push",
-    "db:studio": "bun run --filter @screenshare-guide/db studio",
+    "db:migrate": "graphile-migrate migrate",
+    "db:watch": "graphile-migrate watch",
+    "db:reset": "graphile-migrate reset --erase",
     "test": "bun run --filter '*' test",
     "typecheck": "bun run --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.16.0",
+    "graphile-migrate": "^1.4.1"
+  },
+  "dependencies": {
+    "kysely": "^0.28.11",
+    "pg": "^8.18.0"
   }
 }

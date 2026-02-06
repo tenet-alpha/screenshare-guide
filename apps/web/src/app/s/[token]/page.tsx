@@ -62,7 +62,7 @@ export default function SessionPage() {
         token={token}
         sessionId={session.id}
         template={session.template!}
-        initialStep={session.currentStep}
+        initialStep={session.current_step}
       />
     </div>
   );

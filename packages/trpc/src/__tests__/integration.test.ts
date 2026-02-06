@@ -2,10 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
 
 /**
  * tRPC Integration Tests
- * 
+ *
  * These tests create actual tRPC callers with a real database connection.
  * They verify the full request lifecycle from input validation to database operations.
- * 
+ *
  * Requires DATABASE_URL environment variable to be set.
  */
 
@@ -14,49 +14,46 @@ const shouldSkip = !connectionString;
 
 // Dynamic imports to avoid loading db module when DATABASE_URL is not set
 async function setupTest() {
-  const { drizzle } = await import("drizzle-orm/postgres-js");
-  const postgres = (await import("postgres")).default;
-  const schema = await import("@screenshare-guide/db/schema");
+  const { Kysely, PostgresDialect } = await import("kysely");
+  const pg = (await import("pg")).default;
   const { appRouter } = await import("../index");
 
-  const sql = postgres(connectionString!);
-  const db = drizzle(sql, { schema });
+  const pool = new pg.Pool({ connectionString });
+  const db = new Kysely<any>({ dialect: new PostgresDialect({ pool }) });
 
   const createTestCaller = () => {
     return appRouter.createCaller({ db });
   };
 
-  return { db, sql, schema, createTestCaller };
+  return { db, pool, createTestCaller };
 }
 
 describe.skipIf(shouldSkip)("tRPC Integration", () => {
   let caller: any;
   let db: any;
-  let sql: any;
-  let schema: any;
+  let pool: any;
 
   beforeAll(async () => {
     const setup = await setupTest();
     db = setup.db;
-    sql = setup.sql;
-    schema = setup.schema;
+    pool = setup.pool;
     caller = setup.createTestCaller();
   });
 
   beforeEach(async () => {
     // Clean up test data
-    await db.delete(schema.frameSamples);
-    await db.delete(schema.recordings);
-    await db.delete(schema.sessions);
-    await db.delete(schema.templates);
+    await db.deleteFrom("frame_samples").execute();
+    await db.deleteFrom("recordings").execute();
+    await db.deleteFrom("sessions").execute();
+    await db.deleteFrom("templates").execute();
   });
 
   afterAll(async () => {
-    await db.delete(schema.frameSamples);
-    await db.delete(schema.recordings);
-    await db.delete(schema.sessions);
-    await db.delete(schema.templates);
-    await sql.end();
+    await db.deleteFrom("frame_samples").execute();
+    await db.deleteFrom("recordings").execute();
+    await db.deleteFrom("sessions").execute();
+    await db.deleteFrom("templates").execute();
+    await db.destroy();
   });
 
   describe("Template Router", () => {
@@ -150,11 +147,11 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
     beforeEach(async () => {
       // Clean and create fresh template for session tests
-      await db.delete(schema.frameSamples);
-      await db.delete(schema.recordings);
-      await db.delete(schema.sessions);
-      await db.delete(schema.templates);
-      
+      await db.deleteFrom("frame_samples").execute();
+      await db.deleteFrom("recordings").execute();
+      await db.deleteFrom("sessions").execute();
+      await db.deleteFrom("templates").execute();
+
       const template = await caller.template.create({
         name: "Session Test Template",
         steps: [
@@ -170,9 +167,9 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
       expect(session.token).toHaveLength(12);
       expect(session.status).toBe("pending");
-      expect(session.currentStep).toBe(0);
+      expect(session.current_step).toBe(0);
       expect(session.shareUrl).toBe(`/s/${session.token}`);
-      expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now());
+      expect(session.expires_at.getTime()).toBeGreaterThan(Date.now());
     });
 
     it("should create session with custom expiry", async () => {
@@ -182,7 +179,7 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
       });
 
       const expectedExpiry = Date.now() + 48 * 60 * 60 * 1000;
-      expect(session.expiresAt.getTime()).toBeCloseTo(expectedExpiry, -4); // Within 10 seconds
+      expect(session.expires_at.getTime()).toBeCloseTo(expectedExpiry, -4); // Within 10 seconds
     });
 
     it("should get session by token with template data", async () => {
@@ -192,20 +189,20 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
       expect(fetched.id).toBe(created.id);
       expect(fetched.template).toBeDefined();
-      expect(fetched.template.name).toBe("Session Test Template");
-      expect(fetched.template.steps).toHaveLength(2);
+      expect(fetched.template!.name).toBe("Session Test Template");
+      expect(fetched.template!.steps).toHaveLength(2);
     });
 
     it("should start a session (mark as active)", async () => {
       const created = await caller.session.create({ templateId });
 
       expect(created.status).toBe("pending");
-      expect(created.usedAt).toBeNull();
+      expect(created.used_at).toBeNull();
 
       const started = await caller.session.start({ token: created.token });
 
       expect(started.status).toBe("active");
-      expect(started.usedAt).toBeInstanceOf(Date);
+      expect(started.used_at).toBeInstanceOf(Date);
     });
 
     it("should prevent starting a session twice", async () => {
@@ -226,7 +223,7 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
         metadata: { completedSteps: [0] },
       });
 
-      expect(updated.currentStep).toBe(1);
+      expect(updated.current_step).toBe(1);
       expect(updated.metadata?.completedSteps).toContain(0);
     });
 
@@ -250,10 +247,11 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
       });
 
       // Manually set expiresAt to the past to simulate expiry
-      const { eq } = await import("drizzle-orm");
-      await db.update(schema.sessions)
-        .set({ expiresAt: new Date(Date.now() - 1000) })
-        .where(eq(schema.sessions.token, session.token));
+      await db
+        .updateTable("sessions")
+        .set({ expires_at: new Date(Date.now() - 1000) })
+        .where("token", "=", session.token)
+        .execute();
 
       await expect(
         caller.session.getByToken({ token: session.token })
@@ -308,7 +306,7 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
       // 3. Fetch session (as if user opened share link)
       const fetchedSession = await caller.session.getByToken({ token: session.token });
-      expect(fetchedSession.template.name).toBe("Complete Workflow Test");
+      expect(fetchedSession.template!.name).toBe("Complete Workflow Test");
 
       // 4. Start session
       const startedSession = await caller.session.start({ token: session.token });
@@ -334,7 +332,7 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
       });
 
       expect(completedSession.status).toBe("completed");
-      expect(completedSession.currentStep).toBe(2);
+      expect(completedSession.current_step).toBe(2);
       expect(completedSession.metadata?.completedSteps).toEqual([0, 1]);
       expect(completedSession.metadata?.totalDurationMs).toBe(120000);
 

@@ -18,7 +18,6 @@
     "@screenshare-guide/db": "workspace:*",
     "@screenshare-guide/trpc": "workspace:*",
     "@trpc/server": "^10.45.0",
-    "drizzle-orm": "^0.45.1",
     "elysia": "^1.0.3",
     "nanoid": "^5.0.4",
     "pino": "^9.0.0"

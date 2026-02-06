@@ -39,47 +39,47 @@ describe("Session Router", () => {
 
     it("should detect expired sessions", () => {
       const expiredSession = createMockSession({
-        expiresAt: new Date(Date.now() - 1000), // 1 second ago
+        expires_at: new Date(Date.now() - 1000), // 1 second ago
       });
 
-      const isExpired = new Date() > expiredSession.expiresAt;
+      const isExpired = new Date() > expiredSession.expires_at;
       expect(isExpired).toBe(true);
     });
 
     it("should detect valid sessions", () => {
       const validSession = createMockSession({
-        expiresAt: new Date(Date.now() + 1000000),
+        expires_at: new Date(Date.now() + 1000000),
       });
 
-      const isExpired = new Date() > validSession.expiresAt;
+      const isExpired = new Date() > validSession.expires_at;
       expect(isExpired).toBe(false);
     });
   });
 
   describe("one-time use enforcement", () => {
     it("should track first use timestamp", () => {
-      const session = createMockSession({ usedAt: null });
+      const session = createMockSession({ used_at: null });
 
-      expect(session.usedAt).toBeNull();
+      expect(session.used_at).toBeNull();
 
       // Simulate starting the session
       const startedSession = {
         ...session,
-        usedAt: new Date(),
+        used_at: new Date(),
         status: "active",
       };
 
-      expect(startedSession.usedAt).toBeInstanceOf(Date);
+      expect(startedSession.used_at).toBeInstanceOf(Date);
       expect(startedSession.status).toBe("active");
     });
 
     it("should reject already-used sessions", () => {
       const usedSession = createMockSession({
-        usedAt: new Date(),
+        used_at: new Date(),
         status: "completed",
       });
 
-      const isAlreadyUsed = usedSession.usedAt && usedSession.status === "completed";
+      const isAlreadyUsed = usedSession.used_at && usedSession.status === "completed";
       expect(isAlreadyUsed).toBe(true);
     });
   });
@@ -114,14 +114,14 @@ describe("Session Router", () => {
     it("should start at step 0", () => {
       const session = createMockSession();
 
-      expect(session.currentStep).toBe(0);
+      expect(session.current_step).toBe(0);
     });
 
     it("should increment current step", () => {
-      const session = createMockSession({ currentStep: 0 });
+      const session = createMockSession({ current_step: 0 });
 
-      const advanced = { ...session, currentStep: session.currentStep + 1 };
-      expect(advanced.currentStep).toBe(1);
+      const advanced = { ...session, current_step: session.current_step + 1 };
+      expect(advanced.current_step).toBe(1);
     });
 
     it("should track completed steps in metadata", () => {
@@ -161,13 +161,13 @@ describe("Session Router", () => {
 
     it("should filter by template", () => {
       const sessions = [
-        createMockSession({ templateId: "template-1" }),
-        createMockSession({ templateId: "template-1" }),
-        createMockSession({ templateId: "template-2" }),
+        createMockSession({ template_id: "template-1" }),
+        createMockSession({ template_id: "template-1" }),
+        createMockSession({ template_id: "template-2" }),
       ];
 
       const template1Sessions = sessions.filter(
-        (s) => s.templateId === "template-1"
+        (s) => s.template_id === "template-1"
       );
       expect(template1Sessions.length).toBe(2);
     });

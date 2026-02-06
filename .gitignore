@@ -46,8 +46,7 @@ Thumbs.db
 # Bun
 bun.lockb
 
-# Drizzle
-packages/db/drizzle/
+# Graphile Migrate shadow DB is local-only
 
 # Testing
 *.tsbuildinfo

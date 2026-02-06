@@ -1,0 +1,11 @@
+{
+  "connectionString": "postgres://postgres:postgres@localhost:5432/screenshare",
+  "shadowConnectionString": "postgres://postgres:postgres@localhost:5432/screenshare_shadow",
+  "rootConnectionString": "postgres://postgres:postgres@localhost:5432/postgres",
+  "pgSettings": {},
+  "placeholders": {},
+  "afterReset": [],
+  "afterAllMigrations": [],
+  "afterCurrent": [],
+  "blankMigrationContent": "-- Enter migration here\n"
+}

@@ -1,94 +1,102 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import { eq, lt } from "drizzle-orm";
-import * as schema from "../schema";
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
+import type { Database } from "../schema";
 
 /**
  * Database Integration Tests
- * 
+ *
  * These tests run against a real Postgres database to verify:
- * - Schema is valid and can be pushed
+ * - Schema is valid and can be queried
  * - CRUD operations work correctly
- * - Relations work as expected
  * - Constraints are enforced
  */
 
 const connectionString = process.env.DATABASE_URL;
 const shouldSkip = !connectionString;
 
-// Create test-specific connection
-const sql = shouldSkip ? null : postgres(connectionString!);
-const db = shouldSkip ? null : drizzle(sql!, { schema });
+let db: Kysely<Database>;
+let pool: pg.Pool;
+
+if (!shouldSkip) {
+  pool = new pg.Pool({ connectionString });
+  db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+}
 
 describe.skipIf(shouldSkip)("Database Schema Integration", () => {
   beforeEach(async () => {
-    // Clean up test data before each test
-    await db!.delete(schema.frameSamples);
-    await db!.delete(schema.recordings);
-    await db!.delete(schema.sessions);
-    await db!.delete(schema.templates);
+    await db.deleteFrom("frame_samples").execute();
+    await db.deleteFrom("recordings").execute();
+    await db.deleteFrom("sessions").execute();
+    await db.deleteFrom("templates").execute();
   });
 
   afterAll(async () => {
-    // Clean up and close connection
-    await db!.delete(schema.frameSamples);
-    await db!.delete(schema.recordings);
-    await db!.delete(schema.sessions);
-    await db!.delete(schema.templates);
-    await sql!.end();
+    await db.deleteFrom("frame_samples").execute();
+    await db.deleteFrom("recordings").execute();
+    await db.deleteFrom("sessions").execute();
+    await db.deleteFrom("templates").execute();
+    await db.destroy();
   });
 
   describe("Templates", () => {
     it("should create a template with steps", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
+      const template = await db
+        .insertInto("templates")
         .values({
           name: "Test Template",
           description: "A test template",
-          steps: [
+          steps: JSON.stringify([
             { instruction: "Step 1", successCriteria: "Step 1 done" },
             { instruction: "Step 2", successCriteria: "Step 2 done", hints: ["Hint 1"] },
-          ],
+          ]),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(template.id).toBeDefined();
       expect(template.name).toBe("Test Template");
       expect(template.description).toBe("A test template");
       expect(template.steps).toHaveLength(2);
       expect(template.steps[1].hints).toContain("Hint 1");
-      expect(template.createdAt).toBeInstanceOf(Date);
+      expect(template.created_at).toBeInstanceOf(Date);
     });
 
     it("should update a template", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Original", steps: [{ instruction: "Do X", successCriteria: "X done" }] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({
+          name: "Original",
+          steps: JSON.stringify([{ instruction: "Do X", successCriteria: "X done" }]),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [updated] = await db!
-        .update(schema.templates)
-        .set({ name: "Updated", updatedAt: new Date() })
-        .where(eq(schema.templates.id, template.id))
-        .returning();
+      const updated = await db
+        .updateTable("templates")
+        .set({ name: "Updated", updated_at: new Date() })
+        .where("id", "=", template.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(updated.name).toBe("Updated");
-      expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(template.createdAt.getTime());
+      expect(updated.updated_at.getTime()).toBeGreaterThanOrEqual(template.created_at.getTime());
     });
 
     it("should delete a template", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "To Delete", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "To Delete", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      await db!.delete(schema.templates).where(eq(schema.templates.id, template.id));
+      await db.deleteFrom("templates").where("id", "=", template.id).execute();
 
-      const found = await db!
-        .select()
-        .from(schema.templates)
-        .where(eq(schema.templates.id, template.id));
+      const found = await db
+        .selectFrom("templates")
+        .selectAll()
+        .where("id", "=", template.id)
+        .execute();
 
       expect(found).toHaveLength(0);
     });
@@ -96,140 +104,152 @@ describe.skipIf(shouldSkip)("Database Schema Integration", () => {
 
   describe("Sessions", () => {
     it("should create a session linked to a template", async () => {
-      // Create template first
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Session Test Template", steps: [{ instruction: "Test", successCriteria: "Done" }] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({
+          name: "Session Test Template",
+          steps: JSON.stringify([{ instruction: "Test", successCriteria: "Done" }]),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      // Create session
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const [session] = await db!
-        .insert(schema.sessions)
+      const session = await db
+        .insertInto("sessions")
         .values({
           token: "test-token-abc",
-          templateId: template.id,
-          expiresAt,
+          template_id: template.id,
+          expires_at: expiresAt,
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(session.token).toBe("test-token-abc");
-      expect(session.templateId).toBe(template.id);
+      expect(session.template_id).toBe(template.id);
       expect(session.status).toBe("pending");
-      expect(session.currentStep).toBe(0);
-      expect(session.usedAt).toBeNull();
+      expect(session.current_step).toBe(0);
+      expect(session.used_at).toBeNull();
     });
 
     it("should enforce unique token constraint", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Unique Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Unique Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      
-      await db!.insert(schema.sessions).values({
+
+      await db.insertInto("sessions").values({
         token: "unique-token",
-        templateId: template.id,
-        expiresAt,
-      });
+        template_id: template.id,
+        expires_at: expiresAt,
+      }).execute();
 
       // Second insert with same token should fail
       await expect(
-        db!.insert(schema.sessions).values({
+        db.insertInto("sessions").values({
           token: "unique-token",
-          templateId: template.id,
-          expiresAt,
+          template_id: template.id,
+          expires_at: expiresAt,
         }).execute()
       ).rejects.toThrow();
     });
 
     it("should update session status and track used_at", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Status Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Status Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [session] = await db!
-        .insert(schema.sessions)
+      const session = await db
+        .insertInto("sessions")
         .values({
           token: "status-test-token",
-          templateId: template.id,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          template_id: template.id,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       // Start session
       const usedAt = new Date();
-      const [started] = await db!
-        .update(schema.sessions)
-        .set({ status: "active", usedAt })
-        .where(eq(schema.sessions.id, session.id))
-        .returning();
+      const started = await db
+        .updateTable("sessions")
+        .set({ status: "active", used_at: usedAt })
+        .where("id", "=", session.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(started.status).toBe("active");
-      expect(started.usedAt).toBeInstanceOf(Date);
+      expect(started.used_at).toBeInstanceOf(Date);
 
       // Complete session
-      const [completed] = await db!
-        .update(schema.sessions)
-        .set({ status: "completed", currentStep: 3 })
-        .where(eq(schema.sessions.id, session.id))
-        .returning();
+      const completed = await db
+        .updateTable("sessions")
+        .set({ status: "completed", current_step: 3 })
+        .where("id", "=", session.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(completed.status).toBe("completed");
-      expect(completed.currentStep).toBe(3);
+      expect(completed.current_step).toBe(3);
     });
 
     it("should find expired sessions", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Expiry Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Expiry Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       // Create expired session
-      await db!.insert(schema.sessions).values({
+      await db.insertInto("sessions").values({
         token: "expired-token",
-        templateId: template.id,
-        expiresAt: new Date(Date.now() - 1000), // 1 second ago
-      });
+        template_id: template.id,
+        expires_at: new Date(Date.now() - 1000),
+      }).execute();
 
       // Create valid session
-      await db!.insert(schema.sessions).values({
+      await db.insertInto("sessions").values({
         token: "valid-token",
-        templateId: template.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      });
+        template_id: template.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }).execute();
 
       // Query for expired
-      const expired = await db!
-        .select()
-        .from(schema.sessions)
-        .where(lt(schema.sessions.expiresAt, new Date()));
+      const expired = await db
+        .selectFrom("sessions")
+        .selectAll()
+        .where("expires_at", "<", new Date())
+        .execute();
 
       expect(expired).toHaveLength(1);
       expect(expired[0].token).toBe("expired-token");
     });
 
     it("should store and retrieve session metadata", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Metadata Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Metadata Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [session] = await db!
-        .insert(schema.sessions)
+      const session = await db
+        .insertInto("sessions")
         .values({
           token: "metadata-token",
-          templateId: template.id,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          metadata: {
+          template_id: template.id,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          metadata: JSON.stringify({
             userAgent: "Test Browser/1.0",
             completedSteps: [0, 1, 2],
             totalDurationMs: 30000,
-          },
+          }),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       expect(session.metadata?.userAgent).toBe("Test Browser/1.0");
       expect(session.metadata?.completedSteps).toEqual([0, 1, 2]);
@@ -239,102 +259,113 @@ describe.skipIf(shouldSkip)("Database Schema Integration", () => {
 
   describe("Recordings", () => {
     it("should create recording chunks linked to a session", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Recording Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Recording Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [session] = await db!
-        .insert(schema.sessions)
+      const session = await db
+        .insertInto("sessions")
         .values({
           token: "recording-token",
-          templateId: template.id,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          template_id: template.id,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
       // Create multiple chunks
-      const chunks = await db!
-        .insert(schema.recordings)
+      const chunks = await db
+        .insertInto("recordings")
         .values([
-          { sessionId: session.id, storageKey: "r2://chunk-0.webm", chunkIndex: 0, durationMs: 5000, sizeBytes: 100000 },
-          { sessionId: session.id, storageKey: "r2://chunk-1.webm", chunkIndex: 1, durationMs: 5000, sizeBytes: 95000 },
-          { sessionId: session.id, storageKey: "r2://chunk-2.webm", chunkIndex: 2, durationMs: 5000, sizeBytes: 110000 },
+          { session_id: session.id, storage_key: "r2://chunk-0.webm", chunk_index: 0, duration_ms: 5000, size_bytes: 100000 },
+          { session_id: session.id, storage_key: "r2://chunk-1.webm", chunk_index: 1, duration_ms: 5000, size_bytes: 95000 },
+          { session_id: session.id, storage_key: "r2://chunk-2.webm", chunk_index: 2, duration_ms: 5000, size_bytes: 110000 },
         ])
-        .returning();
+        .returningAll()
+        .execute();
 
       expect(chunks).toHaveLength(3);
-      expect(chunks[0].chunkIndex).toBe(0);
-      expect(chunks[2].chunkIndex).toBe(2);
-      expect(chunks[0].mimeType).toBe("video/webm");
+      expect(chunks[0].chunk_index).toBe(0);
+      expect(chunks[2].chunk_index).toBe(2);
+      expect(chunks[0].mime_type).toBe("video/webm");
     });
   });
 
   describe("Frame Samples", () => {
     it("should create frame samples with analysis results", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
-        .values({ name: "Frame Test", steps: [] })
-        .returning();
+      const template = await db
+        .insertInto("templates")
+        .values({ name: "Frame Test", steps: JSON.stringify([]) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [session] = await db!
-        .insert(schema.sessions)
+      const session = await db
+        .insertInto("sessions")
         .values({
           token: "frame-token",
-          templateId: template.id,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          template_id: template.id,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      const [frame] = await db!
-        .insert(schema.frameSamples)
+      const frame = await db
+        .insertInto("frame_samples")
         .values({
-          sessionId: session.id,
-          storageKey: "r2://frame-001.jpg",
-          capturedAt: new Date(),
-          analysisResult: {
+          session_id: session.id,
+          storage_key: "r2://frame-001.jpg",
+          captured_at: new Date(),
+          analysis_result: JSON.stringify({
             description: "User is on the Instagram profile page",
             detectedElements: ["profile picture", "follower count", "bio"],
             matchesSuccessCriteria: true,
             confidence: 0.92,
             suggestedAction: "Click on Professional Dashboard",
-          },
+          }),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      expect(frame.analysisResult?.description).toContain("Instagram");
-      expect(frame.analysisResult?.confidence).toBe(0.92);
-      expect(frame.analysisResult?.detectedElements).toContain("bio");
+      expect(frame.analysis_result?.description).toContain("Instagram");
+      expect(frame.analysis_result?.confidence).toBe(0.92);
+      expect(frame.analysis_result?.detectedElements).toContain("bio");
     });
   });
 
-  describe("Relations", () => {
-    it("should query session with template using relations", async () => {
-      const [template] = await db!
-        .insert(schema.templates)
+  describe("Joins", () => {
+    it("should query session with template using join", async () => {
+      const template = await db
+        .insertInto("templates")
         .values({
           name: "Relation Test Template",
           description: "For testing relations",
-          steps: [{ instruction: "Do something", successCriteria: "Something done" }],
+          steps: JSON.stringify([{ instruction: "Do something", successCriteria: "Something done" }]),
         })
-        .returning();
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-      await db!.insert(schema.sessions).values({
+      await db.insertInto("sessions").values({
         token: "relation-token",
-        templateId: template.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      });
+        template_id: template.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }).execute();
 
-      // Query with relations
-      const result = await db!.query.sessions.findFirst({
-        where: eq(schema.sessions.token, "relation-token"),
-        with: {
-          template: true,
-        },
-      });
+      // Query with join
+      const result = await db
+        .selectFrom("sessions")
+        .innerJoin("templates", "templates.id", "sessions.template_id")
+        .select([
+          "sessions.token",
+          "templates.name as template_name",
+          "templates.steps as template_steps",
+        ])
+        .where("sessions.token", "=", "relation-token")
+        .executeTakeFirst();
 
-      expect(result?.template.name).toBe("Relation Test Template");
-      expect(result?.template.steps[0].instruction).toBe("Do something");
+      expect(result?.template_name).toBe("Relation Test Template");
+      expect((result?.template_steps as any)[0].instruction).toBe("Do something");
     });
   });
 });
