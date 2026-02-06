@@ -1,65 +1,152 @@
 import { Elysia, t } from "elysia";
 import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+  BlobServiceClient,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
+  StorageSharedKeyCredential,
+  SASProtocol,
+} from "@azure/storage-blob";
 import { nanoid } from "nanoid";
 
-// Initialize S3 client for Cloudflare R2
-const getS3Client = () => {
-  const accountId = process.env.R2_ACCOUNT_ID;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+// SAS token expiry times (in minutes)
+const UPLOAD_SAS_EXPIRY_MINUTES = 60; // 1 hour
+const DOWNLOAD_SAS_EXPIRY_MINUTES = 1440; // 24 hours
 
-  if (!accountId || !accessKeyId || !secretAccessKey) {
-    throw new Error("R2 credentials not configured");
+// Lazy-loaded clients
+let _blobServiceClient: BlobServiceClient | null = null;
+let _sharedKeyCredential: StorageSharedKeyCredential | null = null;
+
+/**
+ * Get Azure Blob Storage client (lazy initialization)
+ */
+function getBlobServiceClient(): BlobServiceClient {
+  if (_blobServiceClient) return _blobServiceClient;
+
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  if (!connectionString) {
+    throw new Error("AZURE_STORAGE_CONNECTION_STRING environment variable is required");
   }
 
-  return new S3Client({
-    region: "auto",
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
+  _blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  return _blobServiceClient;
+}
+
+/**
+ * Get container name from environment
+ */
+function getContainerName(): string {
+  return process.env.AZURE_STORAGE_CONTAINER_NAME || "screenshare-recordings";
+}
+
+/**
+ * Parse connection string to extract account name and key for SAS generation
+ */
+function getSharedKeyCredential(): StorageSharedKeyCredential {
+  if (_sharedKeyCredential) return _sharedKeyCredential;
+
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  if (!connectionString) {
+    throw new Error("AZURE_STORAGE_CONNECTION_STRING environment variable is required");
+  }
+
+  // Parse connection string
+  const accountNameMatch = connectionString.match(/AccountName=([^;]+)/);
+  const accountKeyMatch = connectionString.match(/AccountKey=([^;]+)/);
+
+  if (!accountNameMatch || !accountKeyMatch) {
+    throw new Error("Invalid Azure Storage connection string format");
+  }
+
+  _sharedKeyCredential = new StorageSharedKeyCredential(
+    accountNameMatch[1],
+    accountKeyMatch[1]
+  );
+
+  return _sharedKeyCredential;
+}
+
+/**
+ * Generate SAS URL for blob upload
+ */
+async function generateUploadSasUrl(blobName: string, contentType: string): Promise<string> {
+  const blobServiceClient = getBlobServiceClient();
+  const containerClient = blobServiceClient.getContainerClient(getContainerName());
+  const blobClient = containerClient.getBlockBlobClient(blobName);
+  const credential = getSharedKeyCredential();
+
+  // Set expiry time
+  const startsOn = new Date();
+  const expiresOn = new Date(startsOn);
+  expiresOn.setMinutes(expiresOn.getMinutes() + UPLOAD_SAS_EXPIRY_MINUTES);
+
+  // Generate SAS token with write permissions
+  const sasToken = generateBlobSASQueryParameters(
+    {
+      containerName: getContainerName(),
+      blobName,
+      permissions: BlobSASPermissions.parse("cw"), // create + write
+      startsOn,
+      expiresOn,
+      contentType,
+      protocol: SASProtocol.Https,
     },
-  });
-};
+    credential
+  ).toString();
 
-const BUCKET = process.env.R2_BUCKET_NAME || "screenshare-recordings";
+  return `${blobClient.url}?${sasToken}`;
+}
 
-// Presigned URL expiry times
-const UPLOAD_URL_EXPIRY = 3600; // 1 hour
-const DOWNLOAD_URL_EXPIRY = 86400; // 24 hours
+/**
+ * Generate SAS URL for blob download
+ */
+async function generateDownloadSasUrl(blobName: string): Promise<string> {
+  const blobServiceClient = getBlobServiceClient();
+  const containerClient = blobServiceClient.getContainerClient(getContainerName());
+  const blobClient = containerClient.getBlockBlobClient(blobName);
+  const credential = getSharedKeyCredential();
+
+  // Set expiry time
+  const startsOn = new Date();
+  const expiresOn = new Date(startsOn);
+  expiresOn.setMinutes(expiresOn.getMinutes() + DOWNLOAD_SAS_EXPIRY_MINUTES);
+
+  // Generate SAS token with read permissions
+  const sasToken = generateBlobSASQueryParameters(
+    {
+      containerName: getContainerName(),
+      blobName,
+      permissions: BlobSASPermissions.parse("r"), // read only
+      startsOn,
+      expiresOn,
+      protocol: SASProtocol.Https,
+    },
+    credential
+  ).toString();
+
+  return `${blobClient.url}?${sasToken}`;
+}
 
 export const storageRoutes = new Elysia({ prefix: "/storage" })
   /**
-   * Get a presigned URL for uploading a recording chunk
+   * Get a SAS URL for uploading a recording chunk
    */
   .post(
     "/upload-url",
     async ({ body }) => {
-      const s3 = getS3Client();
       const { sessionId, chunkIndex, contentType } = body;
 
-      // Generate unique storage key
-      const key = `recordings/${sessionId}/${chunkIndex}-${nanoid(8)}.webm`;
+      // Generate unique storage key (blob name)
+      const blobName = `recordings/${sessionId}/${chunkIndex}-${nanoid(8)}.webm`;
 
-      const command = new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: key,
-        ContentType: contentType || "video/webm",
-      });
-
-      const uploadUrl = await getSignedUrl(s3, command, {
-        expiresIn: UPLOAD_URL_EXPIRY,
-      });
+      const uploadUrl = await generateUploadSasUrl(
+        blobName,
+        contentType || "video/webm"
+      );
 
       return {
         uploadUrl,
-        storageKey: key,
-        expiresIn: UPLOAD_URL_EXPIRY,
+        storageKey: blobName,
+        expiresIn: UPLOAD_SAS_EXPIRY_MINUTES * 60, // Convert to seconds for API consistency
       };
     },
     {
@@ -72,31 +159,22 @@ export const storageRoutes = new Elysia({ prefix: "/storage" })
   )
 
   /**
-   * Get a presigned URL for uploading a frame sample
+   * Get a SAS URL for uploading a frame sample
    */
   .post(
     "/frame-upload-url",
     async ({ body }) => {
-      const s3 = getS3Client();
       const { sessionId, timestamp } = body;
 
-      // Generate unique storage key
-      const key = `frames/${sessionId}/${timestamp}-${nanoid(8)}.jpg`;
+      // Generate unique storage key (blob name)
+      const blobName = `frames/${sessionId}/${timestamp}-${nanoid(8)}.jpg`;
 
-      const command = new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: key,
-        ContentType: "image/jpeg",
-      });
-
-      const uploadUrl = await getSignedUrl(s3, command, {
-        expiresIn: UPLOAD_URL_EXPIRY,
-      });
+      const uploadUrl = await generateUploadSasUrl(blobName, "image/jpeg");
 
       return {
         uploadUrl,
-        storageKey: key,
-        expiresIn: UPLOAD_URL_EXPIRY,
+        storageKey: blobName,
+        expiresIn: UPLOAD_SAS_EXPIRY_MINUTES * 60,
       };
     },
     {
@@ -108,26 +186,18 @@ export const storageRoutes = new Elysia({ prefix: "/storage" })
   )
 
   /**
-   * Get a presigned URL for downloading a recording or frame
+   * Get a SAS URL for downloading a recording or frame
    */
   .get(
     "/download-url/:key",
     async ({ params }) => {
-      const s3 = getS3Client();
-      const key = decodeURIComponent(params.key);
+      const blobName = decodeURIComponent(params.key);
 
-      const command = new GetObjectCommand({
-        Bucket: BUCKET,
-        Key: key,
-      });
-
-      const downloadUrl = await getSignedUrl(s3, command, {
-        expiresIn: DOWNLOAD_URL_EXPIRY,
-      });
+      const downloadUrl = await generateDownloadSasUrl(blobName);
 
       return {
         downloadUrl,
-        expiresIn: DOWNLOAD_URL_EXPIRY,
+        expiresIn: DOWNLOAD_SAS_EXPIRY_MINUTES * 60,
       };
     },
     {

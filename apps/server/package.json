@@ -11,15 +11,17 @@
     "test": "bun test"
   },
   "dependencies": {
-    "elysia": "^1.0.3",
+    "@anthropic-ai/sdk": "^0.17.1",
+    "@azure/storage-blob": "^12.30.0",
+    "@azure/openai": "^2.0.0",
+    "@azure/openai": "^2.0.0",
+    "@azure/storage-blob": "^12.30.0",
     "@elysiajs/cors": "^1.0.2",
-    "@trpc/server": "^10.45.0",
     "@screenshare-guide/db": "workspace:*",
     "@screenshare-guide/trpc": "workspace:*",
-    "@anthropic-ai/sdk": "^0.17.1",
-    "@aws-sdk/client-s3": "^3.504.0",
-    "@aws-sdk/s3-request-presigner": "^3.504.0",
+    "@trpc/server": "^10.45.0",
     "drizzle-orm": "^0.29.3",
+    "elysia": "^1.0.3",
     "nanoid": "^5.0.4"
   },
   "devDependencies": {

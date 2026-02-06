@@ -1,6 +1,5 @@
 import { Elysia, t } from "elysia";
-import { analyzeFrame } from "./services/vision";
-import { generateSpeech } from "./services/tts";
+import { analyzeFrame, generateSpeech } from "./ai";
 import { db, sessions, templates } from "@screenshare-guide/db";
 import { eq } from "drizzle-orm";
 

@@ -6,10 +6,11 @@ AI-powered screen sharing guidance platform. Generate unique session links, guid
 
 - **Template System**: Create reusable instruction templates with multiple steps
 - **Session Management**: Generate unique, expiring session links
-- **Real-time Screen Analysis**: AI-powered vision analysis using Claude
-- **Voice Guidance**: Text-to-speech instructions via ElevenLabs
-- **Recording Storage**: Automatic recording storage in Cloudflare R2
+- **Real-time Screen Analysis**: AI-powered vision analysis using Claude or Azure OpenAI
+- **Voice Guidance**: Text-to-speech instructions via ElevenLabs or Azure Speech
+- **Recording Storage**: Automatic recording storage in Azure Blob Storage
 - **Progress Tracking**: Step-by-step progress with automatic advancement
+- **Multi-Provider Support**: Switch between Anthropic/ElevenLabs and Azure OpenAI
 
 ## Tech Stack
 
@@ -18,8 +19,8 @@ AI-powered screen sharing guidance platform. Generate unique session links, guid
 - **API**: tRPC for CRUD, raw WebSockets for real-time
 - **Database**: PostgreSQL + Drizzle ORM
 - **Frontend**: Next.js 14 (App Router)
-- **Storage**: Cloudflare R2 (S3-compatible)
-- **AI**: Anthropic Claude for vision, ElevenLabs for TTS
+- **Storage**: Azure Blob Storage
+- **AI**: Anthropic Claude or Azure OpenAI for vision; ElevenLabs or Azure Speech for TTS
 
 ## Project Structure
 
@@ -28,8 +29,11 @@ screenshare-guide/
 ├── apps/
 │   ├── server/          # Elysia backend
 │   │   └── src/
-│   │       ├── services/    # AI services (vision, TTS)
-│   │       ├── routes/      # Storage/upload routes
+│   │       ├── ai/          # AI provider abstraction
+│   │       │   ├── providers/   # Anthropic, Azure implementations
+│   │       │   ├── types.ts     # Provider interfaces
+│   │       │   └── index.ts     # Provider factory
+│   │       ├── routes/      # Storage routes
 │   │       └── websocket.ts # Real-time guidance loop
 │   └── web/             # Next.js frontend
 │       └── src/
@@ -49,7 +53,8 @@ screenshare-guide/
 
 - [Bun](https://bun.sh) (v1.0+)
 - [Docker](https://www.docker.com/) (for PostgreSQL)
-- API keys for Anthropic, ElevenLabs, and Cloudflare R2
+- Azure Storage Account (for recording storage)
+- API keys for your chosen AI provider
 
 ### 1. Clone and Install
 
@@ -65,34 +70,57 @@ bun install
 cp .env.example .env
 ```
 
-Edit `.env` with your API keys:
+### 3. Configure AI Provider
+
+Choose your AI provider by setting `AI_PROVIDER`:
+
+#### Option A: Anthropic + ElevenLabs (Default)
 
 ```env
-# Required
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/screenshare"
-ANTHROPIC_API_KEY="sk-ant-..."
-ELEVENLABS_API_KEY="..."
-
-# Optional (for recording storage)
-R2_ACCOUNT_ID=""
-R2_ACCESS_KEY_ID=""
-R2_SECRET_ACCESS_KEY=""
-R2_BUCKET_NAME="screenshare-recordings"
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 ```
 
-### 3. Start PostgreSQL
+#### Option B: Azure OpenAI + Azure Speech
+
+```env
+AI_PROVIDER=azure
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_DEPLOYMENT_VISION=gpt-4o
+AZURE_SPEECH_ENDPOINT=https://eastus.tts.speech.microsoft.com
+AZURE_SPEECH_API_KEY=...
+AZURE_SPEECH_VOICE_NAME=en-US-JennyNeural
+```
+
+> **Note**: If Azure Speech is not configured, the system falls back to ElevenLabs for TTS.
+
+### 4. Configure Azure Blob Storage
+
+1. Create an Azure Storage Account in the Azure Portal
+2. Create a container (e.g., `screenshare-recordings`)
+3. Get the connection string from **Access Keys**
+
+```env
+AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net
+AZURE_STORAGE_CONTAINER_NAME=screenshare-recordings
+```
+
+### 5. Start PostgreSQL
 
 ```bash
 docker-compose up -d
 ```
 
-### 4. Run Database Migrations
+### 6. Run Database Migrations
 
 ```bash
 bun run db:push
 ```
 
-### 5. Start Development Servers
+### 7. Start Development Servers
 
 In separate terminals:
 
@@ -110,7 +138,7 @@ Or run both:
 bun run dev
 ```
 
-### 6. Open the App
+### 8. Open the App
 
 Visit [http://localhost:3000](http://localhost:3000)
 
@@ -165,26 +193,51 @@ Messages from server:
 
 ### Storage Routes
 
-- `POST /storage/upload-url` - Get presigned URL for video upload
-- `POST /storage/frame-upload-url` - Get presigned URL for frame upload
-- `GET /storage/download-url/:key` - Get presigned URL for download
+- `POST /storage/upload-url` - Get SAS URL for video upload
+- `POST /storage/frame-upload-url` - Get SAS URL for frame upload
+- `GET /storage/download-url/:key` - Get SAS URL for download
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `ANTHROPIC_API_KEY` | Yes | Claude API key for vision |
-| `ELEVENLABS_API_KEY` | Yes | ElevenLabs API key for TTS |
-| `ELEVENLABS_VOICE_ID` | No | Voice ID (default: Rachel) |
-| `R2_ACCOUNT_ID` | No* | Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | No* | R2 access key |
-| `R2_SECRET_ACCESS_KEY` | No* | R2 secret key |
-| `R2_BUCKET_NAME` | No | R2 bucket name |
-| `PORT` | No | Server port (default: 3001) |
-| `CORS_ORIGIN` | No | Frontend origin (default: http://localhost:3000) |
+### Required
 
-\* Required for recording storage
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `AI_PROVIDER` | `anthropic` (default) or `azure` |
+
+### Anthropic Provider
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Claude API key for vision |
+| `ELEVENLABS_API_KEY` | ElevenLabs API key for TTS |
+| `ELEVENLABS_VOICE_ID` | Voice ID (default: Rachel) |
+
+### Azure Provider
+
+| Variable | Description |
+|----------|-------------|
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
+| `AZURE_OPENAI_DEPLOYMENT_VISION` | GPT-4o deployment name |
+| `AZURE_SPEECH_ENDPOINT` | Azure Speech endpoint (optional) |
+| `AZURE_SPEECH_API_KEY` | Azure Speech API key (optional) |
+| `AZURE_SPEECH_VOICE_NAME` | Voice name (default: en-US-JennyNeural) |
+
+### Storage
+
+| Variable | Description |
+|----------|-------------|
+| `AZURE_STORAGE_CONNECTION_STRING` | Azure Storage connection string |
+| `AZURE_STORAGE_CONTAINER_NAME` | Container name (default: screenshare-recordings) |
+
+### Server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3001 | Server port |
+| `CORS_ORIGIN` | http://localhost:3000 | Frontend origin |
 
 ## Development
 
@@ -220,27 +273,40 @@ bun run test
 
 ### Production Considerations
 
-1. **Database**: Use a managed PostgreSQL service (Neon, Supabase, etc.)
+1. **Database**: Use a managed PostgreSQL service (Neon, Azure Database for PostgreSQL, etc.)
 2. **Session State**: Replace in-memory Map with Redis for multi-instance
-3. **WebSocket**: Use a WebSocket-capable host (Railway, Fly.io, etc.)
-4. **Frontend**: Deploy Next.js to Vercel or similar
+3. **WebSocket**: Use a WebSocket-capable host (Railway, Azure App Service, etc.)
+4. **Frontend**: Deploy Next.js to Vercel or Azure Static Web Apps
 5. **HTTPS**: Required for `getDisplayMedia()` in production
 
-### Example Railway Deployment
+### Azure Deployment
 
 ```bash
-# Install Railway CLI
-bun add -g @railway/cli
+# Using Azure Container Apps
+az containerapp up \
+  --name screenshare-guide \
+  --source . \
+  --env-vars DATABASE_URL=... AI_PROVIDER=azure ...
+```
 
-# Login and init
-railway login
-railway init
+### Environment Variables for Production
 
-# Add PostgreSQL
-railway add --database postgres
+Ensure all sensitive environment variables are set in your deployment platform:
 
-# Deploy
-railway up
+```bash
+# Core
+DATABASE_URL=<production-postgres-url>
+CORS_ORIGIN=https://your-domain.com
+
+# AI Provider (choose one set)
+AI_PROVIDER=azure
+AZURE_OPENAI_ENDPOINT=https://...
+AZURE_OPENAI_API_KEY=<key>
+AZURE_OPENAI_DEPLOYMENT_VISION=gpt-4o
+
+# Storage
+AZURE_STORAGE_CONNECTION_STRING=<connection-string>
+AZURE_STORAGE_CONTAINER_NAME=screenshare-recordings
 ```
 
 ## License
