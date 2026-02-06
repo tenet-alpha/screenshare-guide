@@ -58,16 +58,100 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const [audioData, setAudioData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [pipSupported, setPipSupported] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pipWindowRef = useRef<any>(null);
+  const pipUpdateRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const steps = template.steps as TemplateStep[];
   const totalSteps = steps.length;
   const stepLabels = ["Handle Verification", "Analytics Verification"];
+
+  // Check PiP support on mount
+  useEffect(() => {
+    setPipSupported("documentPictureInPicture" in window);
+  }, []);
+
+  // Keep PiP content in sync
+  useEffect(() => {
+    if (!pipWindowRef.current) return;
+    updatePipContent();
+  }, [instruction, currentStep, isAnalyzing, verifiedSteps]);
+
+  // Close PiP on completion
+  useEffect(() => {
+    if (status === "completed" && pipWindowRef.current) {
+      pipWindowRef.current.close();
+      pipWindowRef.current = null;
+    }
+  }, [status]);
+
+  function updatePipContent() {
+    const pipDoc = pipWindowRef.current?.document;
+    if (!pipDoc) return;
+
+    const verifiedHtml = verifiedSteps.map((vs) =>
+      vs.data.map((d) =>
+        `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+          <span style="color:#9ca3af;font-size:12px;">${d.label}:</span>
+          <span style="color:#fff;font-size:14px;font-weight:700;">${d.value}</span>
+        </div>`
+      ).join("")
+    ).join("");
+
+    const analyzingHtml = isAnalyzing
+      ? `<div style="display:flex;align-items:center;gap:6px;padding:8px 0 0;"><div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:pulse 1s infinite;"></div><span style="color:#93c5fd;font-size:12px;">Analyzing your screen...</span></div>`
+      : "";
+
+    pipDoc.body.innerHTML = `
+      <div style="padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;">
+          <div style="background:#6366f1;color:#fff;font-size:13px;font-weight:700;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            ${currentStep + 1}
+          </div>
+          <div style="color:#fff;font-size:15px;font-weight:600;line-height:1.4;">
+            ${instruction || steps[currentStep]?.instruction || "Loading..."}
+          </div>
+        </div>
+        ${verifiedHtml ? `<div style="border-top:1px solid #374151;padding-top:8px;margin-top:4px;">${verifiedHtml}</div>` : ""}
+        ${analyzingHtml}
+      </div>
+    `;
+  }
+
+  async function openPipWindow() {
+    if (!("documentPictureInPicture" in window)) return;
+    try {
+      const pip = await (window as any).documentPictureInPicture.requestWindow({
+        width: 380,
+        height: 200,
+      });
+      pipWindowRef.current = pip;
+
+      // Style the PiP window
+      const style = pip.document.createElement("style");
+      style.textContent = `
+        body { margin: 0; background: #1f2937; overflow: hidden; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `;
+      pip.document.head.appendChild(style);
+
+      // Handle PiP close
+      pip.addEventListener("pagehide", () => {
+        pipWindowRef.current = null;
+      });
+
+      updatePipContent();
+    } catch (err) {
+      console.error("Failed to open PiP:", err);
+    }
+  }
 
   const connectWebSocket = useCallback(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
@@ -181,6 +265,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       connectWebSocket();
       startFrameSampling();
       setStatus("active");
+
+      // Auto-open PiP if supported
+      if ("documentPictureInPicture" in window) {
+        // Small delay so the user sees the main UI first
+        setTimeout(() => openPipWindow(), 1500);
+      }
     } catch (err: any) {
       setError(err.name === "NotAllowedError"
         ? "Screen sharing permission was denied. Please try again."
@@ -193,6 +283,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     if (frameIntervalRef.current) { clearInterval(frameIntervalRef.current); frameIntervalRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    if (pipWindowRef.current) { pipWindowRef.current.close(); pipWindowRef.current = null; }
     if (status !== "completed") setStatus("idle");
   };
 
@@ -249,11 +340,16 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
               </div>
               <h2 className="text-2xl font-bold mb-4">Ready to Verify?</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-8">
-                We'll verify your Instagram account in {totalSteps} quick steps. Share your screen and follow the on-screen instructions.
+                We'll verify your Instagram account in {totalSteps} quick steps. Share your screen and follow the floating instructions — they'll stay on top even when you switch tabs.
               </p>
               <button onClick={startScreenShare} className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg text-lg transition-colors">
                 Share Screen & Start
               </button>
+              {!pipSupported && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                  ⚠️ Your browser doesn't support floating overlays. Instructions will show on this page instead.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -261,11 +357,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         {/* Active */}
         {(status === "active" || status === "ready" || status === "connecting") && (
           <div className="space-y-4">
-            {/* Video with instruction overlay */}
+            {/* Video with instruction overlay (fallback when no PiP) */}
             <div className="bg-black rounded-lg overflow-hidden aspect-video relative">
               <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
 
-              {/* Instruction overlay - always visible on top of video */}
+              {/* Instruction overlay on video */}
               <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/60 to-transparent p-4 pb-8">
                 <div className="flex items-start gap-3">
                   <div className="bg-primary-500 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
@@ -281,7 +377,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
               {/* Status badges */}
               <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                {/* Verified items so far */}
                 <div className="flex gap-2">
                   {verifiedSteps.map((vs, i) => (
                     <div key={i} className="bg-green-500/90 text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
@@ -290,8 +385,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                     </div>
                   ))}
                 </div>
-
-                {/* Analyzing indicator */}
                 {isAnalyzing && (
                   <div className="bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 backdrop-blur-sm">
                     <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
@@ -312,7 +405,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* Bottom bar: audio + actions */}
+            {/* Bottom bar */}
             <div className="flex items-center gap-4">
               {audioData && (
                 <div className="flex-1">
@@ -320,6 +413,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 </div>
               )}
               <div className="flex gap-2 ml-auto">
+                {pipSupported && !pipWindowRef.current && (
+                  <button onClick={openPipWindow} className="px-4 py-2 bg-indigo-100 dark:bg-indigo-900/20 hover:bg-indigo-200 dark:hover:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-sm font-medium transition-colors">
+                    📌 Float Instructions
+                  </button>
+                )}
                 <button onClick={requestHint} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
                   Get Hint
                 </button>
