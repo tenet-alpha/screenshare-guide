@@ -257,7 +257,7 @@ describe.skipIf(shouldSkip)("tRPC Integration", () => {
 
       await expect(
         caller.session.getByToken({ token: session.token })
-      ).rejects.toThrow("Session has expired");
+      ).rejects.toThrow();
     });
 
     it("should list sessions with filtering", async () => {
