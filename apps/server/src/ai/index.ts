@@ -1,14 +1,20 @@
 /**
  * AI Provider Factory
  * 
- * Creates vision and TTS providers based on the AI_PROVIDER environment variable.
+ * Vision and TTS providers are configured independently:
  * 
- * Supported providers:
- * - "anthropic" (default): Claude for vision, ElevenLabs for TTS
- * - "azure": Azure OpenAI for vision, Azure Speech (or ElevenLabs) for TTS
+ * VISION_PROVIDER:
+ *   - "anthropic" (default): Claude for vision analysis
+ *   - "azure": Azure OpenAI (GPT-4o) for vision analysis
+ * 
+ * TTS_PROVIDER:
+ *   - "elevenlabs" (default): ElevenLabs for text-to-speech
+ *   - "azure": Azure Cognitive Services Speech for TTS
+ * 
+ * Legacy: AI_PROVIDER still works as a fallback to set both at once.
  */
 
-import type { VisionProvider, TTSProvider, AIProviderType } from "./types";
+import type { VisionProvider, TTSProvider, VisionProviderType, TTSProviderType } from "./types";
 import {
   createAnthropicVisionProvider,
   createElevenLabsTTSProvider,
@@ -23,14 +29,37 @@ let _visionProvider: VisionProvider | null = null;
 let _ttsProvider: TTSProvider | null = null;
 
 /**
- * Get the configured AI provider type
+ * Get the configured vision provider type
+ * 
+ * Priority: VISION_PROVIDER > AI_PROVIDER > "anthropic"
  */
-export function getProviderType(): AIProviderType {
-  const provider = process.env.AI_PROVIDER?.toLowerCase();
-  if (provider === "azure") {
-    return "azure";
-  }
+export function getVisionProviderType(): VisionProviderType {
+  const explicit = process.env.VISION_PROVIDER?.toLowerCase();
+  if (explicit === "azure") return "azure";
+  if (explicit === "anthropic") return "anthropic";
+
+  // Fallback to legacy AI_PROVIDER
+  const legacy = process.env.AI_PROVIDER?.toLowerCase();
+  if (legacy === "azure") return "azure";
+
   return "anthropic"; // default
+}
+
+/**
+ * Get the configured TTS provider type
+ * 
+ * Priority: TTS_PROVIDER > AI_PROVIDER > "elevenlabs"
+ */
+export function getTTSProviderType(): TTSProviderType {
+  const explicit = process.env.TTS_PROVIDER?.toLowerCase();
+  if (explicit === "azure") return "azure";
+  if (explicit === "elevenlabs") return "elevenlabs";
+
+  // Fallback to legacy AI_PROVIDER
+  const legacy = process.env.AI_PROVIDER?.toLowerCase();
+  if (legacy === "azure") return "azure";
+
+  return "elevenlabs"; // default
 }
 
 /**
@@ -39,8 +68,8 @@ export function getProviderType(): AIProviderType {
 export function getVisionProvider(): VisionProvider {
   if (_visionProvider) return _visionProvider;
 
-  const providerType = getProviderType();
-  console.log(`[AI] Initializing ${providerType} vision provider`);
+  const providerType = getVisionProviderType();
+  console.log(`[AI] Initializing vision provider: ${providerType}`);
 
   switch (providerType) {
     case "azure":
@@ -61,14 +90,14 @@ export function getVisionProvider(): VisionProvider {
 export function getTTSProvider(): TTSProvider {
   if (_ttsProvider) return _ttsProvider;
 
-  const providerType = getProviderType();
-  console.log(`[AI] Initializing ${providerType} TTS provider`);
+  const providerType = getTTSProviderType();
+  console.log(`[AI] Initializing TTS provider: ${providerType}`);
 
   switch (providerType) {
     case "azure":
       _ttsProvider = createAzureTTSProvider();
       break;
-    case "anthropic":
+    case "elevenlabs":
     default:
       _ttsProvider = createElevenLabsTTSProvider();
       break;
@@ -86,7 +115,7 @@ export function resetProviders(): void {
 }
 
 // ============================================================================
-// Convenience functions (backwards compatibility with old API)
+// Convenience functions
 // ============================================================================
 
 /**
@@ -129,7 +158,6 @@ export async function* generateSpeechStream(text: string, voiceId?: string) {
   if (tts.generateSpeechStream) {
     yield* tts.generateSpeechStream(text, voiceId);
   } else {
-    // Fallback: yield the entire audio as a single chunk
     const audio = await tts.generateSpeech(text, voiceId);
     yield Buffer.from(audio, "base64");
   }

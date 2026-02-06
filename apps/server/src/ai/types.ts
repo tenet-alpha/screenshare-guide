@@ -76,6 +76,16 @@ export interface AIProvider {
 }
 
 /**
- * Supported AI provider types
+ * Supported vision provider types
+ */
+export type VisionProviderType = "anthropic" | "azure";
+
+/**
+ * Supported TTS provider types
+ */
+export type TTSProviderType = "elevenlabs" | "azure";
+
+/**
+ * @deprecated Use VisionProviderType or TTSProviderType instead
  */
 export type AIProviderType = "anthropic" | "azure";
