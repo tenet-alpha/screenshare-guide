@@ -17,21 +17,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
+          bun-version: latest
 
-      # Use npm (not bun) so node_modules are real files, not symlinks
-      # SWA deploy breaks on bun's symlinked node_modules in standalone output
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Build frontend
-        run: cd apps/web && npx next build
+        run: bun run --filter @screenshare-guide/web build
 
-      - name: Copy static assets into standalone
+      - name: Prepare standalone output (resolve symlinks)
         run: |
-          cp -r apps/web/public apps/web/.next/standalone/apps/web/public || true
+          # Copy standalone with dereferenced symlinks to a clean dir
+          cp -rL apps/web/.next/standalone /tmp/standalone-resolved
+          # Copy back
+          rm -rf apps/web/.next/standalone
+          mv /tmp/standalone-resolved apps/web/.next/standalone
+          # Copy static assets into standalone
+          cp -r apps/web/public apps/web/.next/standalone/apps/web/public 2>/dev/null || true
           cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
 
       - name: Deploy to Azure Static Web Apps
