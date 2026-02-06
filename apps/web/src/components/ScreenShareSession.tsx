@@ -32,7 +32,6 @@ interface ExtractedDataItem {
 interface VerifiedStep {
   stepIndex: number;
   data: ExtractedDataItem[];
-  verifiedAt: string;
 }
 
 interface AnalysisResult {
@@ -42,7 +41,6 @@ interface AnalysisResult {
   extractedData?: ExtractedDataItem[];
 }
 
-// Checkmark icon component
 function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={cn("w-5 h-5", className)} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,39 +67,31 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
   const steps = template.steps as TemplateStep[];
   const totalSteps = steps.length;
+  const stepLabels = ["Handle Verification", "Analytics Verification"];
 
-  // Connect to WebSocket
   const connectWebSocket = useCallback(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001";
     const ws = new WebSocket(`${wsUrl}/ws/${token}`);
 
-    ws.onopen = () => {
-      console.log("[WS] Connected");
-      setStatus("ready");
-    };
+    ws.onopen = () => { setStatus("ready"); };
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
+        handleWebSocketMessage(JSON.parse(event.data));
       } catch (err) {
-        console.error("[WS] Failed to parse message:", err);
+        console.error("[WS] Parse error:", err);
       }
     };
 
-    ws.onerror = (event) => {
-      console.error("[WS] Error:", event);
+    ws.onerror = () => {
       setError("Connection error. Please refresh the page.");
       setStatus("error");
     };
 
     ws.onclose = () => {
-      console.log("[WS] Disconnected");
       if (status !== "completed" && status !== "error") {
         setTimeout(() => {
-          if (wsRef.current?.readyState !== WebSocket.OPEN) {
-            connectWebSocket();
-          }
+          if (wsRef.current?.readyState !== WebSocket.OPEN) connectWebSocket();
         }, 3000);
       }
     };
@@ -109,7 +99,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     wsRef.current = ws;
   }, [token, status]);
 
-  // Handle incoming WebSocket messages
   const handleWebSocketMessage = (data: any) => {
     switch (data.type) {
       case "connected":
@@ -132,24 +121,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         break;
 
       case "stepComplete": {
-        // Save verified data for the completed step
         const completedStepIndex = data.currentStep - 1;
         const stepData = analysis?.extractedData?.filter((d: ExtractedDataItem) => d.label && d.value) || [];
         if (stepData.length > 0) {
-          setVerifiedSteps((prev) => {
-            const existing = prev.findIndex((v) => v.stepIndex === completedStepIndex);
-            const entry: VerifiedStep = {
-              stepIndex: completedStepIndex,
-              data: stepData,
-              verifiedAt: new Date().toLocaleTimeString(),
-            };
-            if (existing >= 0) {
-              const updated = [...prev];
-              updated[existing] = entry;
-              return updated;
-            }
-            return [...prev, entry];
-          });
+          setVerifiedSteps((prev) => [
+            ...prev.filter((v) => v.stepIndex !== completedStepIndex),
+            { stepIndex: completedStepIndex, data: stepData },
+          ]);
         }
         setCurrentStep(data.currentStep);
         setInstruction(data.nextInstruction);
@@ -167,17 +145,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         break;
 
       case "completed": {
-        // Save final step data before completing
         const finalData = analysis?.extractedData?.filter((d: ExtractedDataItem) => d.label && d.value) || [];
         if (finalData.length > 0) {
-          setVerifiedSteps((prev) => {
-            const entry: VerifiedStep = {
-              stepIndex: currentStep,
-              data: finalData,
-              verifiedAt: new Date().toLocaleTimeString(),
-            };
-            return [...prev.filter((v) => v.stepIndex !== currentStep), entry];
-          });
+          setVerifiedSteps((prev) => [
+            ...prev.filter((v) => v.stepIndex !== currentStep),
+            { stepIndex: currentStep, data: finalData },
+          ]);
         }
         setStatus("completed");
         stopScreenShare();
@@ -194,105 +167,61 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     }
   };
 
-  // Start screen sharing
   const startScreenShare = async () => {
     setStatus("connecting");
     setError(null);
-
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          displaySurface: "monitor",
-          frameRate: { ideal: 5, max: 10 },
-        },
+        video: { displaySurface: "monitor", frameRate: { ideal: 5, max: 10 } },
         audio: false,
       });
-
       streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-
-      stream.getVideoTracks()[0].addEventListener("ended", () => {
-        stopScreenShare();
-      });
-
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      stream.getVideoTracks()[0].addEventListener("ended", () => stopScreenShare());
       connectWebSocket();
       startFrameSampling();
       setStatus("active");
     } catch (err: any) {
-      console.error("Failed to start screen share:", err);
-      if (err.name === "NotAllowedError") {
-        setError("Screen sharing permission was denied. Please try again.");
-      } else {
-        setError("Failed to start screen sharing. Please try again.");
-      }
+      setError(err.name === "NotAllowedError"
+        ? "Screen sharing permission was denied. Please try again."
+        : "Failed to start screen sharing. Please try again.");
       setStatus("error");
     }
   };
 
-  // Stop screen sharing
   const stopScreenShare = () => {
-    if (frameIntervalRef.current) {
-      clearInterval(frameIntervalRef.current);
-      frameIntervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    if (status !== "completed") {
-      setStatus("idle");
-    }
+    if (frameIntervalRef.current) { clearInterval(frameIntervalRef.current); frameIntervalRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    if (status !== "completed") setStatus("idle");
   };
 
-  // Sample frames and send to server
   const startFrameSampling = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
     frameIntervalRef.current = setInterval(() => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
-
       canvas.width = Math.min(video.videoWidth, 1280);
       canvas.height = Math.min(video.videoHeight, (canvas.width / video.videoWidth) * video.videoHeight);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const imageData = canvas.toDataURL("image/jpeg", 0.7);
-      wsRef.current.send(JSON.stringify({ type: "frame", imageData }));
+      wsRef.current.send(JSON.stringify({ type: "frame", imageData: canvas.toDataURL("image/jpeg", 0.7) }));
     }, 2000);
   };
 
   const requestHint = () => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "requestHint" }));
-    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "requestHint" }));
   };
 
   useEffect(() => { return () => { stopScreenShare(); }; }, []);
-
   useEffect(() => {
-    const heartbeat = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "ping" }));
-      }
+    const hb = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "ping" }));
     }, 30000);
-    return () => clearInterval(heartbeat);
+    return () => clearInterval(hb);
   }, []);
-
-  // All verified data flattened for the completion screen
-  const allVerifiedData = verifiedSteps.flatMap((v) => v.data);
-
-  // Step labels for display
-  const stepLabels = ["Handle Verification", "Analytics Verification"];
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
@@ -304,15 +233,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 p-4 max-w-7xl mx-auto w-full">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
-            {error}
-          </div>
+          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">{error}</div>
         )}
 
-        {/* Idle State */}
+        {/* Idle */}
         {status === "idle" && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="max-w-md text-center">
@@ -323,7 +249,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
               </div>
               <h2 className="text-2xl font-bold mb-4">Ready to Verify?</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-8">
-                We'll verify your Instagram account in {totalSteps} steps with AI-powered screen analysis. Share your screen to begin.
+                We'll verify your Instagram account in {totalSteps} quick steps. Share your screen and follow the on-screen instructions.
               </p>
               <button onClick={startScreenShare} className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg text-lg transition-colors">
                 Share Screen & Start
@@ -332,140 +258,91 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
           </div>
         )}
 
-        {/* Active State */}
+        {/* Active */}
         {(status === "active" || status === "ready" || status === "connecting") && (
-          <div className="grid lg:grid-cols-3 gap-6">
-            {/* Video Preview */}
-            <div className="lg:col-span-2">
-              <div className="bg-black rounded-lg overflow-hidden aspect-video relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-                {status === "connecting" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <div className="text-center text-white">
-                      <div className="spinner mx-auto mb-2"></div>
-                      <p>Connecting...</p>
-                    </div>
+          <div className="space-y-4">
+            {/* Video with instruction overlay */}
+            <div className="bg-black rounded-lg overflow-hidden aspect-video relative">
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+
+              {/* Instruction overlay - always visible on top of video */}
+              <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/60 to-transparent p-4 pb-8">
+                <div className="flex items-start gap-3">
+                  <div className="bg-primary-500 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
+                    {currentStep + 1}
                   </div>
-                )}
+                  <div>
+                    <p className="text-white text-lg font-semibold leading-snug drop-shadow-lg">
+                      {instruction || steps[currentStep]?.instruction || "Loading..."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status badges */}
+              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+                {/* Verified items so far */}
+                <div className="flex gap-2">
+                  {verifiedSteps.map((vs, i) => (
+                    <div key={i} className="bg-green-500/90 text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 backdrop-blur-sm">
+                      <CheckIcon className="w-3.5 h-3.5" />
+                      {vs.data[0]?.value || stepLabels[vs.stepIndex]}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Analyzing indicator */}
                 {isAnalyzing && (
-                  <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                  <div className="bg-blue-500/90 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 backdrop-blur-sm">
                     <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                     Analyzing...
                   </div>
                 )}
               </div>
-              <canvas ref={canvasRef} className="hidden" />
+
+              {status === "connecting" && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <div className="text-center text-white">
+                    <div className="spinner mx-auto mb-2"></div>
+                    <p>Connecting...</p>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Sidebar */}
-            <div className="space-y-4">
-              {/* Verification Checklist */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Verification Progress</h3>
-                <div className="space-y-3">
-                  {steps.map((_, i) => {
-                    const verified = verifiedSteps.find((v) => v.stepIndex === i);
-                    const isCurrent = i === currentStep;
-                    return (
-                      <div key={i} className={cn(
-                        "flex items-start gap-3 p-3 rounded-lg transition-colors",
-                        verified ? "bg-green-50 dark:bg-green-900/20" : isCurrent ? "bg-blue-50 dark:bg-blue-900/20" : "bg-gray-50 dark:bg-gray-800"
-                      )}>
-                        <div className={cn(
-                          "w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5",
-                          verified ? "bg-green-500" : isCurrent ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"
-                        )}>
-                          {verified ? (
-                            <CheckIcon className="w-4 h-4 text-white" />
-                          ) : (
-                            <span className="text-xs font-bold text-white">{i + 1}</span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={cn(
-                            "text-sm font-medium",
-                            verified ? "text-green-700 dark:text-green-400" : isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-500"
-                          )}>
-                            {stepLabels[i] || `Step ${i + 1}`}
-                          </p>
-                          {/* Show verified data inline */}
-                          {verified && verified.data.map((d, j) => (
-                            <div key={j} className="flex items-center gap-2 mt-1">
-                              <CheckIcon className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                              <span className="text-xs text-gray-500 dark:text-gray-400">{d.label}:</span>
-                              <span className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{d.value}</span>
-                            </div>
-                          ))}
-                          {/* Show current step description */}
-                          {isCurrent && !verified && (
-                            <p className="text-xs text-gray-500 mt-1">In progress...</p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+            <canvas ref={canvasRef} className="hidden" />
 
-              {/* Current Instruction */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-5 shadow-sm">
-                <h3 className="text-sm font-medium text-gray-500 mb-2">
-                  Step {currentStep + 1} of {totalSteps}
-                </h3>
-                <p className="text-base font-medium">
-                  {instruction || steps[currentStep]?.instruction || "Loading..."}
-                </p>
-              </div>
-
-              {/* Audio Player */}
+            {/* Bottom bar: audio + actions */}
+            <div className="flex items-center gap-4">
               {audioData && (
-                <AudioPlayer audioData={audioData} onComplete={() => setAudioData(null)} />
-              )}
-
-              {/* Analysis Status */}
-              {analysis && (
-                <div className={cn(
-                  "rounded-lg p-4",
-                  analysis.matchesSuccess
-                    ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
-                    : "bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"
-                )}>
-                  <p className="text-sm">{analysis.description}</p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Confidence: {Math.round(analysis.confidence * 100)}%
-                  </p>
+                <div className="flex-1">
+                  <AudioPlayer audioData={audioData} onComplete={() => setAudioData(null)} />
                 </div>
               )}
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <button onClick={requestHint} className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
+              <div className="flex gap-2 ml-auto">
+                <button onClick={requestHint} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
                   Get Hint
                 </button>
-                <button onClick={stopScreenShare} className="flex-1 px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 dark:hover:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
-                  Stop Session
+                <button onClick={stopScreenShare} className="px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 dark:hover:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
+                  Stop
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Completed State */}
+        {/* Completed */}
         {status === "completed" && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="max-w-lg w-full">
-              {/* Success header */}
               <div className="text-center mb-8">
                 <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckIcon className="w-10 h-10 text-green-600 dark:text-green-400" />
                 </div>
                 <h2 className="text-2xl font-bold mb-2">Verification Complete</h2>
-                <p className="text-gray-500 dark:text-gray-400">
-                  All data has been verified from your live screen.
-                </p>
+                <p className="text-gray-500 dark:text-gray-400">All data verified from your live screen.</p>
               </div>
 
-              {/* Verified Data Card */}
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-3">
                   <h3 className="text-white font-semibold flex items-center gap-2">
@@ -492,7 +369,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                       ))}
                     </div>
                   ))}
-                  {allVerifiedData.length === 0 && (
+                  {verifiedSteps.length === 0 && (
                     <p className="text-gray-500 text-center py-4">Session completed.</p>
                   )}
                 </div>
@@ -503,7 +380,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 </div>
               </div>
 
-              {/* Back button */}
               <div className="text-center mt-6">
                 <a href="/" className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-lg transition-colors inline-block">
                   Back to Home

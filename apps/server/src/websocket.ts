@@ -22,7 +22,7 @@ const activeSessions = new Map<string, SessionState>();
 const ANALYSIS_DEBOUNCE_MS = 2000;
 
 // Consecutive successful analyses needed to advance
-const SUCCESS_THRESHOLD = 2;
+const SUCCESS_THRESHOLD = 1;
 
 // Rate limiting for WebSocket messages
 const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
