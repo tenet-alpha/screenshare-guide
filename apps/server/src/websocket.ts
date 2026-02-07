@@ -390,18 +390,25 @@ async function handleFrame(
 
     logAI("vision", "analyzeFrame", Date.now() - startTime);
 
-    // Accumulate any extracted data
-    if (analysis.extractedData?.length) {
-      accumulateExtractedData(state, analysis.extractedData);
+    // Filter extracted data to only include fields from known schemas
+    const allKnownFields = new Set(
+      Object.values(STEP_EXTRACTION_SCHEMAS).flatMap((s) => s.map((f) => f.field))
+    );
+    const validData = (analysis.extractedData || []).filter(
+      (d) => d.label && d.value && allKnownFields.has(d.label)
+    );
+
+    // Accumulate only valid schema fields
+    if (validData.length) {
+      accumulateExtractedData(state, validData);
     }
 
     ws.send(
       JSON.stringify({
         type: "analysis",
-        description: analysis.description,
         matchesSuccess: analysis.matchesSuccessCriteria,
         confidence: analysis.confidence,
-        extractedData: analysis.extractedData || [],
+        extractedData: validData,
       })
     );
 
