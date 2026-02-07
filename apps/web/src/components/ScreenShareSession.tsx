@@ -702,7 +702,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
               Share your screen and follow the floating instructions to verify your Instagram audience metrics.
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-500 mb-6">
-              3 quick steps: Open Meta Business Suite → View Insights → Capture metrics
+              2 quick steps: Open Meta Business Suite → View Insights
             </p>
             <button onClick={startScreenShare} className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium rounded-xl text-lg transition-all shadow-lg hover:shadow-xl">
               Share Screen & Start
@@ -746,7 +746,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                       👆 Click the link above to open the page, then analysis will begin.
                     </p>
                   )}
-                  {safeStep === 2 && (
+                  {safeStep === 1 && linkClickedSteps.has(1) && (
                     <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                       Analyzing your insights data...
                     </p>
