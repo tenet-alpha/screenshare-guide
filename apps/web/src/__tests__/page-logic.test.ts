@@ -43,18 +43,6 @@ const STEP_LINKS: Record<number, { url: string; label: string }> = {
   },
 };
 
-// ── Countdown logic (mirrors useEffect in ScreenShareSession) ───────
-
-function simulateCountdown(start: number): number[] {
-  const values: number[] = [];
-  let value = start;
-  while (value >= 0) {
-    values.push(value);
-    value--;
-  }
-  return values;
-}
-
 // ── Accumulated data dedup (mirrors accumulateData in component) ────
 
 interface ExtractedDataItem {
@@ -84,7 +72,6 @@ interface WsState {
   instruction: string;
   isAnalyzing: boolean;
   completedSteps: Set<number>;
-  countdown: number | null;
   status: string;
   collectedData: ExtractedDataItem[];
 }
@@ -95,7 +82,6 @@ function createInitialWsState(): WsState {
     instruction: "",
     isAnalyzing: false,
     completedSteps: new Set(),
-    countdown: null,
     status: "idle",
     collectedData: [],
   };
@@ -130,7 +116,7 @@ function handleMessage(state: WsState, data: any, totalSteps: number): WsState {
         next.collectedData = accumulateData(next.collectedData, data.extractedData);
       }
       next.completedSteps.add(totalSteps - 1);
-      next.countdown = 5;
+      next.status = "completed";
       break;
     case "error":
       next.status = "error";
@@ -227,31 +213,15 @@ describe("STEP_LINKS mapping", () => {
   });
 });
 
-describe("countdown logic", () => {
-  it("counts down 5 → 4 → 3 → 2 → 1 → 0", () => {
-    const values = simulateCountdown(5);
-    expect(values).toEqual([5, 4, 3, 2, 1, 0]);
-  });
-
-  it("countdown from 0 yields just [0]", () => {
-    expect(simulateCountdown(0)).toEqual([0]);
-  });
-
-  it("status transitions to completed when countdown reaches 0", () => {
-    // Simulates the useEffect logic
-    let status = "active";
-    let countdown: number | null = 5;
-
-    // Simulate each tick
-    while (countdown !== null && countdown > 0) {
-      countdown--;
-    }
-
-    if (countdown !== null && countdown <= 0) {
-      status = "completed";
-    }
-
-    expect(status).toBe("completed");
+describe("immediate completion", () => {
+  it("'completed' message sets status directly to completed", () => {
+    const state = createInitialWsState();
+    const next = handleMessage(
+      state,
+      { type: "completed", extractedData: [{ label: "Reach", value: "10K" }] },
+      2
+    );
+    expect(next.status).toBe("completed");
   });
 });
 
@@ -359,7 +329,7 @@ describe("WebSocket message handling state transitions", () => {
     expect(next.instruction).toBe("Open Account Insights and capture your audience metrics");
   });
 
-  it("'completed' marks last step and starts countdown", () => {
+  it("'completed' marks last step and sets status to completed", () => {
     const state = { ...createInitialWsState(), currentStep: 1 };
     const next = handleMessage(
       state,
@@ -376,7 +346,7 @@ describe("WebSocket message handling state transitions", () => {
     );
 
     expect(next.completedSteps.has(1)).toBe(true);
-    expect(next.countdown).toBe(5);
+    expect(next.status).toBe("completed");
     expect(next.collectedData).toHaveLength(3);
   });
 
@@ -418,7 +388,7 @@ describe("WebSocket message handling state transitions", () => {
       TOTAL_STEPS
     );
     expect(state.completedSteps.has(1)).toBe(true);
-    expect(state.countdown).toBe(5);
+    expect(state.status).toBe("completed");
     expect(state.collectedData).toHaveLength(1);
   });
 });

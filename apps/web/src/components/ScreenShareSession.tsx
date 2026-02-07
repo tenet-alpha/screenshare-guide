@@ -67,7 +67,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [pipSupported, setPipSupported] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
@@ -81,7 +80,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const streamRef = useRef<MediaStream | null>(null);
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pipWindowRef = useRef<any>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // MediaRecorder refs for session recording
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -123,7 +121,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   // Keep PiP in sync
   useEffect(() => {
     updatePipContent();
-  }, [instruction, currentStep, isAnalyzing, collectedData, countdown, completedSteps]);
+  }, [instruction, currentStep, isAnalyzing, collectedData, completedSteps]);
 
   // Close PiP on completion and trigger recording upload
   useEffect(() => {
@@ -194,18 +192,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     }
   }, [sessionId, getUploadUrl, updateSession]);
 
-  // Countdown logic
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown <= 0) {
-      setStatus("completed");
-      stopScreenShare();
-      return;
-    }
-    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
-
   function handleStepLinkClick(stepIndex: number) {
     const link = STEP_LINKS[stepIndex];
     if (!link) return;
@@ -255,18 +241,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         </div>`
       : "";
 
-    const countdownHtml = countdown !== null
-      ? `<div style="text-align:center;padding:8px 0;color:#22c55e;font-size:20px;font-weight:700;">Closing in ${countdown}...</div>`
-      : "";
-
     // Clickable link button for steps 0 and 1
-    const linkBtnHtml = stepLink && countdown === null
+    const linkBtnHtml = stepLink
       ? `<button id="step-link" style="display:block;width:100%;margin-top:8px;padding:10px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;">${stepLink.label}</button>`
       : "";
 
-    const instructionText = countdown !== null
-      ? "✅ All metrics captured!"
-      : instruction || steps[safeStep]?.instruction || "Loading...";
+    const instructionText = instruction || steps[safeStep]?.instruction || "Loading...";
 
     pipDoc.body.innerHTML = `
       <div style="padding:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
@@ -277,12 +257,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         </div>
         ${dataHtml ? `<div style="border-top:1px solid #374151;padding-top:4px;margin-top:4px;flex-shrink:0;overflow:hidden;">${dataHtml}</div>` : ""}
         ${analyzingHtml}
-        ${countdownHtml}
       </div>
     `;
 
     // Attach click handler to the link button
-    if (stepLink && countdown === null) {
+    if (stepLink) {
       const btn = pipDoc.getElementById("step-link");
       if (btn) {
         btn.addEventListener("click", () => handleStepLinkClick(safeStep));
@@ -400,8 +379,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
           next.add(totalSteps - 1);
           return next;
         });
-        // Start 5-second countdown
-        setCountdown(5);
+        // Go straight to completed — no countdown delay
+        setStatus("completed");
+        stopScreenShare();
         break;
 
       case "error":
@@ -502,7 +482,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     if (pipWindowRef.current) { pipWindowRef.current.close(); pipWindowRef.current = null; }
-    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
     if (status !== "completed") setStatus("idle");
   };
 
@@ -793,15 +772,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                     <span className="ml-auto text-base font-bold text-gray-900 dark:text-gray-100">{d.value}</span>
                   </div>
                 ))}
-              </div>
-            )}
-
-            {/* Countdown */}
-            {countdown !== null && (
-              <div className="text-center py-4">
-                <p className="text-green-600 dark:text-green-400 font-semibold text-lg">
-                  ✅ All metrics captured! Closing in {countdown}...
-                </p>
               </div>
             )}
 
