@@ -12,14 +12,36 @@ interface SessionData {
 
 export default function HomePage() {
   const [session, setSession] = useState<SessionData | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const createProof = trpc.session.createProof.useMutation({
     onSuccess: (data) => {
-      setSession({
-        token: data.token,
-        sessionId: data.sessionId,
-        template: data.template,
-      });
+      try {
+        // Defensive: ensure template.steps is a valid array
+        const steps = Array.isArray(data.template?.steps)
+          ? data.template.steps
+          : typeof data.template?.steps === "string"
+            ? JSON.parse(data.template.steps as unknown as string)
+            : [];
+
+        if (!steps.length) {
+          setSetupError("Invalid template data received. Please try again.");
+          return;
+        }
+
+        setSetupError(null);
+        setSession({
+          token: data.token,
+          sessionId: data.sessionId,
+          template: { ...data.template, steps },
+        });
+      } catch (err) {
+        console.error("Failed to parse session data:", err);
+        setSetupError("Failed to initialize session. Please try again.");
+      }
+    },
+    onError: () => {
+      setSetupError(null); // Let the createProof.error handle display
     },
   });
 
@@ -78,9 +100,9 @@ export default function HomePage() {
         </p>
 
         {/* Error */}
-        {createProof.error && (
+        {(createProof.error || setupError) && (
           <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
-            Failed to start session. Please try again.
+            {setupError || "Failed to start session. Please try again."}
           </div>
         )}
       </div>

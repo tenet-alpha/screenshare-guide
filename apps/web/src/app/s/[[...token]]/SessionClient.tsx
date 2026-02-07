@@ -73,12 +73,36 @@ export default function SessionClient() {
     return null;
   }
 
+  // Defensive: ensure template exists and steps is an array
+  const template = session.template;
+  if (!template) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
+          <h1 className="text-xl font-semibold mb-2">Template Not Found</h1>
+          <p className="text-gray-500 dark:text-gray-400">
+            The session template could not be loaded.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const normalizedTemplate = {
+    ...template,
+    steps: Array.isArray(template.steps)
+      ? template.steps
+      : typeof template.steps === "string"
+        ? (() => { try { return JSON.parse(template.steps as unknown as string); } catch { return []; } })()
+        : [],
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
       <ScreenShareSession
         token={token}
         sessionId={session.id}
-        template={session.template!}
+        template={normalizedTemplate}
         initialStep={session.current_step}
       />
     </div>

@@ -92,7 +92,11 @@ export const websocketHandler = new Elysia()
           return;
         }
 
-        const steps = template.steps as SessionState["steps"];
+        const steps = (
+          typeof template.steps === "string"
+            ? JSON.parse(template.steps)
+            : template.steps
+        ) as SessionState["steps"];
 
         // Initialize session state (clamp currentStep to valid range)
         const clampedStep = Math.min(session.current_step, steps.length - 1);

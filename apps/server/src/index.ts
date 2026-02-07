@@ -2,7 +2,6 @@ import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { trpcHandler } from "./trpc-adapter";
 import { websocketHandler } from "./websocket";
-import { storageRoutes } from "./routes/storage";
 import { securityHeaders, validateContentType } from "./middleware/security";
 import { standardRateLimit } from "./middleware/rate-limit";
 import { logger, generateRequestId, logRequest } from "./lib/logger";
@@ -85,9 +84,6 @@ const app = new Elysia()
 
   // tRPC handler for all CRUD operations
   .all("/trpc/*", trpcHandler)
-
-  // Storage routes (presigned URLs)
-  .use(storageRoutes)
 
   // WebSocket handler for real-time AI guidance
   .use(websocketHandler)

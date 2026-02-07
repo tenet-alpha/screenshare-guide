@@ -62,7 +62,16 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const pipWindowRef = useRef<any>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const steps = template.steps as TemplateStep[];
+  // Defensive: ensure steps is always a valid array
+  const steps: TemplateStep[] = (() => {
+    try {
+      if (Array.isArray(template.steps)) return template.steps;
+      if (typeof template.steps === "string") return JSON.parse(template.steps);
+      return [];
+    } catch {
+      return [];
+    }
+  })();
   const totalSteps = steps.length;
 
   useEffect(() => {
@@ -348,7 +357,24 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     return () => clearInterval(hb);
   }, []);
 
-  const safeStep = Math.min(currentStep, totalSteps - 1);
+  const safeStep = Math.min(currentStep, Math.max(totalSteps - 1, 0));
+
+  // Guard: if template has no steps, show an error
+  if (totalSteps === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
+          <h1 className="text-xl font-semibold mb-2 text-red-600">Template Error</h1>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">
+            Invalid template data. No steps available.
+          </p>
+          <a href="/" className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white font-medium rounded-lg transition-all inline-block">
+            Back to Home
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">

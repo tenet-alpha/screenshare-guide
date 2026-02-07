@@ -192,7 +192,15 @@ export const sessionRouter = router({
 
       return {
         ...session,
-        template,
+        template: template
+          ? {
+              ...template,
+              steps:
+                typeof template.steps === "string"
+                  ? JSON.parse(template.steps)
+                  : template.steps,
+            }
+          : undefined,
       };
     }),
 
@@ -220,7 +228,15 @@ export const sessionRouter = router({
 
       return {
         ...session,
-        template,
+        template: template
+          ? {
+              ...template,
+              steps:
+                typeof template.steps === "string"
+                  ? JSON.parse(template.steps)
+                  : template.steps,
+            }
+          : undefined,
       };
     }),
 
