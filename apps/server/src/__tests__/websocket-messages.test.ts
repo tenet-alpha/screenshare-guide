@@ -31,6 +31,8 @@ interface SessionState {
   extractionVotes: Record<string, Record<string, number>>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
+  linkClickedTime: number;
+  pendingSuggestedAction: string | null;
 }
 
 // Constants (must match websocket.ts)

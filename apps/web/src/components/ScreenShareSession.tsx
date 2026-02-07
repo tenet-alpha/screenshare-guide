@@ -829,7 +829,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 </button>
               )}
               <div className="flex-1" />
-              <button onClick={stopScreenShare} className="px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
+              <button onClick={() => stopScreenShare()} className="px-4 py-2 bg-red-100 dark:bg-red-900/20 hover:bg-red-200 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
                 Stop Session
               </button>
             </div>
