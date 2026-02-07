@@ -41,23 +41,27 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
     audio.play().catch(console.error);
   }, []);
 
-  // When new audioData arrives, either play immediately or queue it
+  // When new audioData arrives, interrupt current playback and play immediately
   useEffect(() => {
     if (!audioData) return;
 
     const audio = audioRef.current;
     if (!audio) return;
 
-    // If nothing is currently playing, play immediately
-    if (!isPlaying && !currentAudioRef.current) {
-      playAudio(audioData);
-    } else {
-      // Queue it for later
-      queueRef.current.push(audioData);
-    }
-  }, [audioData, playAudio]); // intentionally not depending on isPlaying to avoid re-triggering
+    // Clear any queued clips — new instruction takes priority
+    queueRef.current = [];
 
-  // Play next from queue when current clip ends
+    // Stop current playback if any
+    if (currentAudioRef.current) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
+    // Play the new audio immediately
+    playAudio(audioData);
+  }, [audioData, playAudio]);
+
+  // Handle audio clip ending
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setProgress(0);
@@ -69,14 +73,8 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
       blobUrlRef.current = null;
     }
 
-    // Check queue
-    if (queueRef.current.length > 0) {
-      const next = queueRef.current.shift()!;
-      playAudio(next);
-    } else {
-      // Queue fully drained — fire onComplete
-      onComplete?.();
-    }
+    // Fire onComplete — audio finished naturally
+    onComplete?.();
   }, [playAudio, onComplete]);
 
   useEffect(() => {

@@ -23,14 +23,13 @@ interface SessionState {
     successCriteria: string;
     hints?: string[];
   }>;
-  status: "waiting" | "analyzing" | "speaking" | "completed";
+  status: "waiting" | "analyzing" | "completed";
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
-  awaitingAudioComplete: boolean;
 }
 
 // Constants (must match websocket.ts)
@@ -78,7 +77,7 @@ function hasAllStep3Metrics(state: SessionState): boolean {
 }
 
 function shouldAnalyzeFrame(state: SessionState, now: number): boolean {
-  if (state.status === "completed" || state.status === "speaking" || state.awaitingAudioComplete) return false;
+  if (state.status === "completed") return false;
   if (now - state.lastAnalysisTime < ANALYSIS_DEBOUNCE_MS) return false;
   return true;
 }
@@ -141,7 +140,6 @@ function createState(
     allExtractedData: [],
     lastSpokenAction: null,
     lastInstructionTime: 0,
-    awaitingAudioComplete: false,
     ...overrides,
   };
 }
@@ -465,16 +463,6 @@ describe("frame debouncing", () => {
 
   it("blocks analysis when session is completed", () => {
     const state = createState({ status: "completed", lastAnalysisTime: 0 });
-    expect(shouldAnalyzeFrame(state, Date.now())).toBe(false);
-  });
-
-  it("blocks analysis when speaking", () => {
-    const state = createState({ status: "speaking", lastAnalysisTime: 0 });
-    expect(shouldAnalyzeFrame(state, Date.now())).toBe(false);
-  });
-
-  it("blocks analysis when awaiting audio complete", () => {
-    const state = createState({ awaitingAudioComplete: true, lastAnalysisTime: 0 });
     expect(shouldAnalyzeFrame(state, Date.now())).toBe(false);
   });
 

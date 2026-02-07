@@ -605,107 +605,69 @@ describe("copy results formatting", () => {
   });
 });
 
-// ── Audio queue logic (mirrors AudioPlayer) ─────────────────────────
+// ── Audio interrupt logic (mirrors AudioPlayer — interrupt, not queue) ──
 
-interface AudioQueueState {
-  queue: string[];
+interface AudioPlayerState {
+  currentClip: string | null;
   isPlaying: boolean;
   completeFired: boolean;
 }
 
-function createAudioQueueState(): AudioQueueState {
-  return { queue: [], isPlaying: false, completeFired: false };
+function createAudioPlayerState(): AudioPlayerState {
+  return { currentClip: null, isPlaying: false, completeFired: false };
 }
 
-function enqueueAudio(state: AudioQueueState, audioData: string): AudioQueueState {
-  const next = { ...state, queue: [...state.queue] };
-  if (!next.isPlaying) {
-    // Play immediately
-    next.isPlaying = true;
-  } else {
-    // Queue it
-    next.queue.push(audioData);
-  }
-  return next;
+function receiveAudio(state: AudioPlayerState, audioData: string): AudioPlayerState {
+  // New audio always interrupts — plays immediately, clears any previous
+  return { ...state, currentClip: audioData, isPlaying: true, completeFired: false };
 }
 
-function onAudioEnded(state: AudioQueueState): AudioQueueState {
-  const next = { ...state, queue: [...state.queue] };
-  if (next.queue.length > 0) {
-    // Play next from queue
-    next.queue.shift();
-    next.isPlaying = true;
-  } else {
-    // Queue fully drained
-    next.isPlaying = false;
-    next.completeFired = true;
-  }
-  return next;
+function onAudioEnded(state: AudioPlayerState): AudioPlayerState {
+  return { ...state, currentClip: null, isPlaying: false, completeFired: true };
 }
 
-describe("audio queue logic", () => {
+describe("audio interrupt logic", () => {
   it("plays immediately when nothing is playing", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "audio1");
+    let state = createAudioPlayerState();
+    state = receiveAudio(state, "audio1");
     expect(state.isPlaying).toBe(true);
-    expect(state.queue).toHaveLength(0);
+    expect(state.currentClip).toBe("audio1");
   });
 
-  it("queues audio when something is already playing", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "audio1"); // plays immediately
-    state = enqueueAudio(state, "audio2"); // should queue
+  it("interrupts current audio with new audio", () => {
+    let state = createAudioPlayerState();
+    state = receiveAudio(state, "audio1"); // playing
+    state = receiveAudio(state, "audio2"); // interrupts audio1
     expect(state.isPlaying).toBe(true);
-    expect(state.queue).toHaveLength(1);
-    expect(state.queue[0]).toBe("audio2");
+    expect(state.currentClip).toBe("audio2"); // new clip, not old
   });
 
-  it("plays next from queue when current clip ends", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "audio1");
-    state = enqueueAudio(state, "audio2");
-    state = onAudioEnded(state); // audio1 finishes
-    expect(state.isPlaying).toBe(true); // playing audio2
-    expect(state.queue).toHaveLength(0);
-    expect(state.completeFired).toBe(false);
-  });
-
-  it("fires onComplete only when queue is fully drained", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "audio1");
-    state = enqueueAudio(state, "audio2");
-    state = onAudioEnded(state); // audio1 finishes, plays audio2
-    expect(state.completeFired).toBe(false);
-    state = onAudioEnded(state); // audio2 finishes, queue empty
-    expect(state.completeFired).toBe(true);
-    expect(state.isPlaying).toBe(false);
-  });
-
-  it("handles single audio with no queue", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "audio1");
+  it("fires onComplete when clip ends naturally", () => {
+    let state = createAudioPlayerState();
+    state = receiveAudio(state, "audio1");
     state = onAudioEnded(state);
     expect(state.completeFired).toBe(true);
     expect(state.isPlaying).toBe(false);
-    expect(state.queue).toHaveLength(0);
+    expect(state.currentClip).toBeNull();
   });
 
-  it("handles three clips queued", () => {
-    let state = createAudioQueueState();
-    state = enqueueAudio(state, "a1");
-    state = enqueueAudio(state, "a2");
-    state = enqueueAudio(state, "a3");
-    expect(state.queue).toHaveLength(2);
-
-    state = onAudioEnded(state); // a1 ends
-    expect(state.queue).toHaveLength(1);
+  it("does not fire onComplete when interrupted — only when new clip ends", () => {
+    let state = createAudioPlayerState();
+    state = receiveAudio(state, "audio1");
+    state = receiveAudio(state, "audio2"); // interrupt — no onComplete for audio1
     expect(state.completeFired).toBe(false);
+    state = onAudioEnded(state); // audio2 ends naturally
+    expect(state.completeFired).toBe(true);
+  });
 
-    state = onAudioEnded(state); // a2 ends
-    expect(state.queue).toHaveLength(0);
-    expect(state.completeFired).toBe(false);
-
-    state = onAudioEnded(state); // a3 ends
+  it("handles rapid successive interrupts", () => {
+    let state = createAudioPlayerState();
+    state = receiveAudio(state, "a1");
+    state = receiveAudio(state, "a2");
+    state = receiveAudio(state, "a3");
+    expect(state.currentClip).toBe("a3");
+    expect(state.isPlaying).toBe(true);
+    state = onAudioEnded(state);
     expect(state.completeFired).toBe(true);
   });
 });

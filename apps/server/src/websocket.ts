@@ -10,14 +10,13 @@ interface SessionState {
   currentStep: number;
   totalSteps: number;
   steps: Array<{ instruction: string; successCriteria: string; hints?: string[] }>;
-  status: "waiting" | "analyzing" | "speaking" | "completed";
+  status: "waiting" | "analyzing" | "completed";
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
-  awaitingAudioComplete: boolean;
 }
 
 // In-memory session states (production would use Redis)
@@ -128,7 +127,6 @@ export const websocketHandler = new Elysia()
           allExtractedData: restoredExtractedData,
           lastSpokenAction: null,
           lastInstructionTime: 0,
-          awaitingAudioComplete: false,
         };
 
         activeSessions.set(token, state);
@@ -202,8 +200,7 @@ export const websocketHandler = new Elysia()
             break;
 
           case "audioComplete":
-            state.awaitingAudioComplete = false;
-            state.status = "waiting";
+            // Client finished playing audio — no longer blocks analysis but kept for compatibility
             break;
 
           case "ping":
@@ -301,8 +298,8 @@ async function handleFrame(
     return;
   }
 
-  // Skip if session is completed, currently speaking, or awaiting audio playback
-  if (state.status === "completed" || state.status === "speaking" || state.awaitingAudioComplete) {
+  // Skip if session is completed
+  if (state.status === "completed") {
     return;
   }
 
@@ -518,9 +515,6 @@ async function handleSkipStep(ws: any, state: SessionState, token: string) {
  * Generate TTS and send audio to client
  */
 async function sendInstruction(ws: any, text: string, state: SessionState) {
-  state.status = "speaking";
-  state.awaitingAudioComplete = true;
-
   const startTime = Date.now();
   try {
     const audioBase64 = await generateSpeech(text);
@@ -534,18 +528,14 @@ async function sendInstruction(ws: any, text: string, state: SessionState) {
         audioData: audioBase64,
       })
     );
-    // Do NOT reset status here — wait for "audioComplete" from client
   } catch (error) {
     logAI("tts", "generateSpeech", Date.now() - startTime, error as Error);
-    // Fall back to text only — no audio to wait for
+    // Fall back to text only
     ws.send(
       JSON.stringify({
         type: "instruction",
         text,
       })
     );
-    // Reset since there's no audio playback to wait for
-    state.awaitingAudioComplete = false;
-    state.status = "waiting";
   }
 }
