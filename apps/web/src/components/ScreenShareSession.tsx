@@ -123,15 +123,43 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     updatePipContent();
   }, [instruction, currentStep, isAnalyzing, collectedData, completedSteps]);
 
-  // Close PiP on completion and trigger recording upload
+  // On completion: show countdown in PiP, then close it
   useEffect(() => {
     if (status === "completed") {
-      if (pipWindowRef.current) {
-        pipWindowRef.current.close();
-        pipWindowRef.current = null;
-      }
       // Upload recording (non-blocking)
       uploadRecording();
+
+      // If PiP is open, show a 3-2-1 countdown then close
+      const pip = pipWindowRef.current;
+      if (pip) {
+        let count = 3;
+        const showCount = () => {
+          if (!pipWindowRef.current) return;
+          pipWindowRef.current.document.body.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+              <div style="width:48px;height:48px;background:#22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+              </div>
+              <div style="color:#fff;font-size:16px;font-weight:700;margin-bottom:4px;">Verification Complete!</div>
+              <div style="color:#9ca3af;font-size:13px;">Closing in ${count}...</div>
+            </div>
+          `;
+        };
+        showCount();
+        const timer = setInterval(() => {
+          count--;
+          if (count <= 0) {
+            clearInterval(timer);
+            if (pipWindowRef.current) {
+              pipWindowRef.current.close();
+              pipWindowRef.current = null;
+            }
+          } else {
+            showCount();
+          }
+        }, 1000);
+        return () => clearInterval(timer);
+      }
     }
   }, [status]);
 
@@ -383,9 +411,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
           next.add(totalSteps - 1);
           return next;
         });
-        // Go straight to completed — no countdown delay
+        // Go straight to completed
         setStatus("completed");
-        stopScreenShare();
+        stopScreenShare(true); // keepStatus — don't overwrite "completed" with "idle"
         break;
 
       case "error":
@@ -478,15 +506,18 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     }
   };
 
-  const stopScreenShare = () => {
+  const stopScreenShare = (keepStatus = false) => {
     if (frameIntervalRef.current) { clearInterval(frameIntervalRef.current); frameIntervalRef.current = null; }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    if (pipWindowRef.current) { pipWindowRef.current.close(); pipWindowRef.current = null; }
-    if (status !== "completed") setStatus("idle");
+    if (!keepStatus) {
+      // Only close PiP immediately on manual stop — completion has its own PiP countdown
+      if (pipWindowRef.current) { pipWindowRef.current.close(); pipWindowRef.current = null; }
+      setStatus("idle");
+    }
   };
 
   const startFrameSampling = () => {
