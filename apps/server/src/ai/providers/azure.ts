@@ -109,7 +109,8 @@ Analyze this screenshot. Respond in JSON only:
                   type: "image_url",
                   image_url: {
                     url: imageUrl,
-                    detail: "low",
+                    // Higher detail when extracting text (handles, numbers) for accuracy
+                    detail: extractionSchema?.length ? "auto" : "low",
                   },
                 },
                 {

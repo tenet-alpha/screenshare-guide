@@ -20,6 +20,9 @@ const STEP_EXTRACTION_SCHEMAS: Record<number, ExtractionField[]> = {
   ],
 };
 
+// Consensus threshold — how many times a value must be seen to be accepted
+const CONSENSUS_THRESHOLD = 2;
+
 // Session state machine
 interface SessionState {
   sessionId: string;
@@ -32,6 +35,8 @@ interface SessionState {
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
+  /** Vote counter: field → { value → count }. Used for consensus before committing. */
+  extractionVotes: Record<string, Record<string, number>>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
 }
@@ -142,6 +147,7 @@ export const websocketHandler = new Elysia()
           consecutiveSuccesses: 0,
           linkClicked: {},
           allExtractedData: restoredExtractedData,
+          extractionVotes: {},
           lastSpokenAction: null,
           lastInstructionTime: 0,
         };
@@ -256,9 +262,10 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
 }
 
 /**
- * Accumulate extracted data (dedup by exact label, keep latest value).
- * Vision model is instructed to use exact field names from the extraction schema.
- * Also persists incrementally to DB (fire-and-forget).
+ * Accumulate extracted data using consensus voting.
+ * Each field+value pair gets voted on. A value is only committed to
+ * allExtractedData once it reaches CONSENSUS_THRESHOLD votes.
+ * This filters out OCR misreads (e.g., "@dkdus4n" vs "@kdus4n").
  */
 function accumulateExtractedData(
   state: SessionState,
@@ -267,11 +274,35 @@ function accumulateExtractedData(
   if (!items?.length) return;
   for (const item of items) {
     if (!item.label || !item.value) continue;
-    const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
-    if (idx >= 0) {
-      state.allExtractedData[idx] = item;
-    } else {
-      state.allExtractedData.push(item);
+
+    // Initialize vote bucket for this field if needed
+    if (!state.extractionVotes[item.label]) {
+      state.extractionVotes[item.label] = {};
+    }
+    const votes = state.extractionVotes[item.label];
+
+    // Cast vote for this value
+    const normalizedValue = item.value.trim();
+    votes[normalizedValue] = (votes[normalizedValue] || 0) + 1;
+
+    // Find the value with the most votes
+    let bestValue = normalizedValue;
+    let bestCount = 0;
+    for (const [val, count] of Object.entries(votes)) {
+      if (count > bestCount) {
+        bestValue = val;
+        bestCount = count;
+      }
+    }
+
+    // Only commit once the best value reaches consensus threshold
+    if (bestCount >= CONSENSUS_THRESHOLD) {
+      const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
+      if (idx >= 0) {
+        state.allExtractedData[idx] = { label: item.label, value: bestValue };
+      } else {
+        state.allExtractedData.push({ label: item.label, value: bestValue });
+      }
     }
   }
 

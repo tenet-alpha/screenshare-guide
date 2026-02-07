@@ -156,8 +156,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
     const safeStep = Math.min(currentStep, totalSteps - 1);
     const stepLink = STEP_LINKS[safeStep];
-    console.log("[PiP] update: currentStep=%d, safeStep=%d, stepLink=%o, instruction=%s",
-      currentStep, safeStep, stepLink, instruction?.substring(0, 40));
 
     // Build completed steps markers
     const stepsHtml = Array.from({ length: totalSteps }, (_, i) => {
@@ -297,7 +295,6 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         break;
 
       case "stepComplete": {
-        console.log("[WS] stepComplete received: currentStep=%d, nextInstruction=%s", data.currentStep, data.nextInstruction);
         // Mark previous step as completed
         setCompletedSteps((prev) => {
           const next = new Set(prev);

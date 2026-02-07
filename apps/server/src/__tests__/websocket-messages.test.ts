@@ -28,6 +28,7 @@ interface SessionState {
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
+  extractionVotes: Record<string, Record<string, number>>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
 }
@@ -45,6 +46,8 @@ function handleLinkClicked(state: SessionState, step: number) {
   state.lastSpokenAction = null;
 }
 
+const CONSENSUS_THRESHOLD = 2;
+
 function accumulateExtractedData(
   state: SessionState,
   items: Array<{ label: string; value: string }>
@@ -52,11 +55,29 @@ function accumulateExtractedData(
   if (!items?.length) return;
   for (const item of items) {
     if (!item.label || !item.value) continue;
-    const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
-    if (idx >= 0) {
-      state.allExtractedData[idx] = item;
-    } else {
-      state.allExtractedData.push(item);
+    if (!state.extractionVotes[item.label]) {
+      state.extractionVotes[item.label] = {};
+    }
+    const votes = state.extractionVotes[item.label];
+    const normalizedValue = item.value.trim();
+    votes[normalizedValue] = (votes[normalizedValue] || 0) + 1;
+
+    let bestValue = normalizedValue;
+    let bestCount = 0;
+    for (const [val, count] of Object.entries(votes)) {
+      if (count > bestCount) {
+        bestValue = val;
+        bestCount = count;
+      }
+    }
+
+    if (bestCount >= CONSENSUS_THRESHOLD) {
+      const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
+      if (idx >= 0) {
+        state.allExtractedData[idx] = { label: item.label, value: bestValue };
+      } else {
+        state.allExtractedData.push({ label: item.label, value: bestValue });
+      }
     }
   }
 }
@@ -144,6 +165,7 @@ function createState(
     consecutiveSuccesses: 0,
     linkClicked: {},
     allExtractedData: [],
+    extractionVotes: {},
     lastSpokenAction: null,
     lastInstructionTime: 0,
     ...overrides,
@@ -272,102 +294,64 @@ describe("hasAllRequiredFields (schema-based validation)", () => {
   });
 });
 
-describe("accumulateExtractedData", () => {
-  it("adds new items", () => {
+describe("accumulateExtractedData (consensus voting)", () => {
+  it("does not commit on first observation (below threshold)", () => {
     const state = createState();
-
-    accumulateExtractedData(state, [{ label: "Reach", value: "10,000" }]);
-
-    expect(state.allExtractedData).toHaveLength(1);
-    expect(state.allExtractedData[0]).toEqual({
-      label: "Reach",
-      value: "10,000",
-    });
+    accumulateExtractedData(state, [{ label: "Handle", value: "@kdus4n" }]);
+    expect(state.allExtractedData).toHaveLength(0);
+    expect(state.extractionVotes["Handle"]["@kdus4n"]).toBe(1);
   });
 
-  it("deduplicates by label (keeps latest)", () => {
-    const state = createState({
-      allExtractedData: [{ label: "Reach", value: "10,000" }],
-    });
-
-    accumulateExtractedData(state, [{ label: "Reach", value: "15,000" }]);
-
+  it("commits value after reaching consensus threshold (2)", () => {
+    const state = createState();
+    accumulateExtractedData(state, [{ label: "Handle", value: "@kdus4n" }]);
+    accumulateExtractedData(state, [{ label: "Handle", value: "@kdus4n" }]);
     expect(state.allExtractedData).toHaveLength(1);
-    expect(state.allExtractedData[0].value).toBe("15,000");
+    expect(state.allExtractedData[0]).toEqual({ label: "Handle", value: "@kdus4n" });
   });
 
-  it("adds multiple items at once", () => {
+  it("picks the value with the most votes (filters misreads)", () => {
     const state = createState();
+    // 2x correct, 1x misread
+    accumulateExtractedData(state, [{ label: "Handle", value: "@kdus4n" }]);
+    accumulateExtractedData(state, [{ label: "Handle", value: "@dkdus4n" }]);
+    accumulateExtractedData(state, [{ label: "Handle", value: "@kdus4n" }]);
+    expect(state.allExtractedData).toHaveLength(1);
+    expect(state.allExtractedData[0].value).toBe("@kdus4n");
+  });
 
-    accumulateExtractedData(state, [
-      { label: "Reach", value: "10,000" },
-      { label: "Followers", value: "5,000" },
-    ]);
+  it("updates committed value if a new value reaches higher votes", () => {
+    const state = createState();
+    accumulateExtractedData(state, [{ label: "Reach", value: "100" }]);
+    accumulateExtractedData(state, [{ label: "Reach", value: "100" }]); // committed
+    expect(state.allExtractedData[0].value).toBe("100");
+    accumulateExtractedData(state, [{ label: "Reach", value: "147" }]);
+    accumulateExtractedData(state, [{ label: "Reach", value: "147" }]);
+    accumulateExtractedData(state, [{ label: "Reach", value: "147" }]); // 3 vs 2
+    expect(state.allExtractedData[0].value).toBe("147");
+  });
 
+  it("tracks multiple fields independently", () => {
+    const state = createState();
+    accumulateExtractedData(state, [{ label: "Handle", value: "@a" }, { label: "Reach", value: "10" }]);
+    accumulateExtractedData(state, [{ label: "Handle", value: "@a" }, { label: "Reach", value: "10" }]);
     expect(state.allExtractedData).toHaveLength(2);
   });
 
-  it("handles mixed new and existing items", () => {
-    const state = createState({
-      allExtractedData: [{ label: "Reach", value: "10,000" }],
-    });
-
-    accumulateExtractedData(state, [
-      { label: "Reach", value: "12,000" }, // update
-      { label: "Followers", value: "5,000" }, // new
-    ]);
-
-    expect(state.allExtractedData).toHaveLength(2);
-    expect(state.allExtractedData[0]).toEqual({
-      label: "Reach",
-      value: "12,000",
-    });
-    expect(state.allExtractedData[1]).toEqual({
-      label: "Followers",
-      value: "5,000",
-    });
-  });
-
-  it("skips items with empty label", () => {
+  it("skips items with empty label or value", () => {
     const state = createState();
-
     accumulateExtractedData(state, [{ label: "", value: "123" }]);
-
-    expect(state.allExtractedData).toHaveLength(0);
-  });
-
-  it("skips items with empty value", () => {
-    const state = createState();
-
     accumulateExtractedData(state, [{ label: "Reach", value: "" }]);
-
     expect(state.allExtractedData).toHaveLength(0);
+    expect(Object.keys(state.extractionVotes)).toHaveLength(0);
   });
 
   it("handles null/undefined items array gracefully", () => {
     const state = createState();
-
     accumulateExtractedData(state, null as any);
     accumulateExtractedData(state, undefined as any);
     accumulateExtractedData(state, []);
-
     expect(state.allExtractedData).toHaveLength(0);
-  });
-
-  it("preserves insertion order for new labels", () => {
-    const state = createState();
-
-    accumulateExtractedData(state, [
-      { label: "A", value: "1" },
-      { label: "B", value: "2" },
-      { label: "C", value: "3" },
-    ]);
-
-    expect(state.allExtractedData.map((d) => d.label)).toEqual([
-      "A",
-      "B",
-      "C",
-    ]);
   });
 });
 
