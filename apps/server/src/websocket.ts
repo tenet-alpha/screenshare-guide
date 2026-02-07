@@ -239,15 +239,47 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
 }
 
 /**
- * Normalize a label for dedup comparison.
- * "Instagram Handle", "handle", "Handle:" → "handle"
+ * Canonical label mapping — maps all vision model label variations to a fixed set.
+ * Returns the canonical label, or null if the label doesn't match any known field.
  */
-function normalizeLabel(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]/g, " ").trim().replace(/\s+/g, " ");
+const CANONICAL_LABELS: Array<{ canonical: string; patterns: RegExp[] }> = [
+  {
+    canonical: "Handle",
+    patterns: [/handle/, /username/, /account.*name/, /instagram.*@/],
+  },
+  {
+    canonical: "Reach",
+    patterns: [/^reach$/, /^total.*reach$/, /^accounts.*reach/],
+  },
+  {
+    canonical: "Non-followers reached",
+    patterns: [/non.?follower/, /from.*non/, /non.*from/],
+  },
+  {
+    canonical: "Followers reached",
+    // Must NOT match non-follower patterns — order matters, check non-followers first
+    patterns: [/^follower/, /^from.*follower/, /^reach.*follower/, /follower.*reach/, /follower.*count/],
+  },
+];
+
+function canonicalizeLabel(rawLabel: string): string {
+  const lower = rawLabel.toLowerCase().replace(/[^a-z0-9@]/g, " ").trim().replace(/\s+/g, " ");
+
+  // Check non-followers BEFORE followers (more specific first)
+  for (const { canonical, patterns } of CANONICAL_LABELS) {
+    for (const pattern of patterns) {
+      if (pattern.test(lower)) {
+        return canonical;
+      }
+    }
+  }
+
+  // Unknown label — return cleaned-up original
+  return rawLabel.trim();
 }
 
 /**
- * Accumulate extracted data (dedup by normalized label, keep latest)
+ * Accumulate extracted data (dedup by canonical label, keep latest value)
  * Also persists incrementally to DB (fire-and-forget)
  */
 function accumulateExtractedData(
@@ -257,12 +289,12 @@ function accumulateExtractedData(
   if (!items?.length) return;
   for (const item of items) {
     if (!item.label || !item.value) continue;
-    const normalizedNew = normalizeLabel(item.label);
-    const idx = state.allExtractedData.findIndex((d) => normalizeLabel(d.label) === normalizedNew);
+    const canonical = canonicalizeLabel(item.label);
+    const idx = state.allExtractedData.findIndex((d) => d.label === canonical);
     if (idx >= 0) {
-      state.allExtractedData[idx] = item; // update with latest label + value
+      state.allExtractedData[idx] = { label: canonical, value: item.value };
     } else {
-      state.allExtractedData.push(item);
+      state.allExtractedData.push({ label: canonical, value: item.value });
     }
   }
 
@@ -283,13 +315,12 @@ function accumulateExtractedData(
  * For Step 3 (index 2): check if all required metrics are present
  */
 function hasAllStep3Metrics(state: SessionState): boolean {
-  const labels = state.allExtractedData.map((d) => d.label.toLowerCase());
-  const hasReach = labels.some((l) => l.includes("reach"));
-  const hasNonFollowers = labels.some((l) => l.includes("non-follower") || l.includes("non follower"));
-  const hasFollowers = labels.some(
-    (l) => l.includes("follower") && !l.includes("non-follower") && !l.includes("non follower")
+  const labels = state.allExtractedData.map((d) => d.label);
+  return (
+    labels.includes("Reach") &&
+    labels.includes("Non-followers reached") &&
+    labels.includes("Followers reached")
   );
-  return hasReach && hasNonFollowers && hasFollowers;
 }
 
 /**

@@ -62,18 +62,12 @@ function accumulateExtractedData(
 }
 
 function hasAllStep3Metrics(state: SessionState): boolean {
-  const labels = state.allExtractedData.map((d) => d.label.toLowerCase());
-  const hasReach = labels.some((l) => l.includes("reach"));
-  const hasNonFollowers = labels.some(
-    (l) => l.includes("non-follower") || l.includes("non follower")
+  const labels = state.allExtractedData.map((d) => d.label);
+  return (
+    labels.includes("Reach") &&
+    labels.includes("Non-followers reached") &&
+    labels.includes("Followers reached")
   );
-  const hasFollowers = labels.some(
-    (l) =>
-      l.includes("follower") &&
-      !l.includes("non-follower") &&
-      !l.includes("non follower")
-  );
-  return hasReach && hasNonFollowers && hasFollowers;
 }
 
 function shouldAnalyzeFrame(state: SessionState, now: number): boolean {
@@ -208,13 +202,13 @@ describe("linkClicked handling", () => {
   });
 });
 
-describe("hasAllStep3Metrics", () => {
-  it("returns true when all three metrics are present", () => {
+describe("hasAllStep3Metrics (uses canonical labels from accumulateExtractedData)", () => {
+  it("returns true when all three canonical metrics are present", () => {
     const state = createState({
       allExtractedData: [
         { label: "Reach", value: "12,345" },
-        { label: "Non-Followers", value: "8,000" },
-        { label: "Followers", value: "4,345" },
+        { label: "Non-followers reached", value: "8,000" },
+        { label: "Followers reached", value: "4,345" },
       ],
     });
 
@@ -223,7 +217,6 @@ describe("hasAllStep3Metrics", () => {
 
   it("returns false with no metrics", () => {
     const state = createState({ allExtractedData: [] });
-
     expect(hasAllStep3Metrics(state)).toBe(false);
   });
 
@@ -231,106 +224,38 @@ describe("hasAllStep3Metrics", () => {
     const state = createState({
       allExtractedData: [{ label: "Reach", value: "10,000" }],
     });
-
     expect(hasAllStep3Metrics(state)).toBe(false);
   });
 
-  it("returns false with only Reach and Non-Followers", () => {
+  it("returns false with only Reach and Non-followers reached", () => {
     const state = createState({
       allExtractedData: [
         { label: "Reach", value: "10,000" },
-        { label: "Non-Followers", value: "6,000" },
+        { label: "Non-followers reached", value: "6,000" },
       ],
     });
-
     expect(hasAllStep3Metrics(state)).toBe(false);
   });
 
-  it("returns false with only Reach and Followers", () => {
+  it("returns false missing Followers reached", () => {
     const state = createState({
       allExtractedData: [
-        { label: "Reach", value: "10,000" },
-        { label: "Followers", value: "4,000" },
+        { label: "Reach", value: "12,345" },
+        { label: "Non-followers reached", value: "8,000" },
       ],
     });
-
     expect(hasAllStep3Metrics(state)).toBe(false);
   });
 
-  // ── Case variation tests ──
-
-  it("handles lowercase 'reach'", () => {
+  it("returns true with extra data items", () => {
     const state = createState({
       allExtractedData: [
-        { label: "reach", value: "12,345" },
-        { label: "non-followers", value: "8,000" },
-        { label: "followers", value: "4,345" },
-      ],
-    });
-
-    expect(hasAllStep3Metrics(state)).toBe(true);
-  });
-
-  it("handles mixed case 'Accounts Reached'", () => {
-    const state = createState({
-      allExtractedData: [
-        { label: "Accounts Reached", value: "12,345" },
-        { label: "Non-Followers", value: "8,000" },
-        { label: "Followers", value: "4,345" },
-      ],
-    });
-
-    expect(hasAllStep3Metrics(state)).toBe(true);
-  });
-
-  it("handles 'Non Followers' (no hyphen)", () => {
-    const state = createState({
-      allExtractedData: [
+        { label: "Handle", value: "@testuser" },
         { label: "Reach", value: "12,345" },
-        { label: "Non Followers", value: "8,000" },
-        { label: "Followers", value: "4,345" },
+        { label: "Non-followers reached", value: "8,000" },
+        { label: "Followers reached", value: "4,345" },
       ],
     });
-
-    expect(hasAllStep3Metrics(state)).toBe(true);
-  });
-
-  it("handles 'non-follower' (singular)", () => {
-    const state = createState({
-      allExtractedData: [
-        { label: "Reach", value: "12,345" },
-        { label: "non-follower count", value: "8,000" },
-        { label: "Follower count", value: "4,345" },
-      ],
-    });
-
-    expect(hasAllStep3Metrics(state)).toBe(true);
-  });
-
-  it("correctly distinguishes Followers from Non-Followers", () => {
-    // The "Followers" check must exclude labels containing "non-follower"
-    const state = createState({
-      allExtractedData: [
-        { label: "Reach", value: "12,345" },
-        { label: "Non-Followers", value: "8,000" },
-        // No plain "Followers" label
-      ],
-    });
-
-    expect(hasAllStep3Metrics(state)).toBe(false);
-  });
-
-  it("handles extra data items gracefully", () => {
-    const state = createState({
-      allExtractedData: [
-        { label: "Instagram Handle", value: "@testuser" },
-        { label: "Reach", value: "12,345" },
-        { label: "Non-Followers", value: "8,000" },
-        { label: "Followers", value: "4,345" },
-        { label: "Engagement Rate", value: "3.2%" },
-      ],
-    });
-
     expect(hasAllStep3Metrics(state)).toBe(true);
   });
 });

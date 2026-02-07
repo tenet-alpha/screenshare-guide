@@ -258,20 +258,15 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     wsRef.current = ws;
   }, [token, status]);
 
-  // Normalize label for dedup: "Instagram Handle" and "handle" → same key
-  function normalizeLabel(label: string): string {
-    return label.toLowerCase().replace(/[^a-z0-9]/g, " ").trim().replace(/\s+/g, " ");
-  }
-
-  // Accumulate extracted data (dedup by normalized label, always keep latest)
+  // Accumulate extracted data — server already canonicalizes labels,
+  // so dedup by exact label match is sufficient
   function accumulateData(items: ExtractedDataItem[]) {
     if (!items?.length) return;
     setCollectedData((prev) => {
       const updated = [...prev];
       for (const item of items) {
         if (!item.label || !item.value) continue;
-        const normalizedNew = normalizeLabel(item.label);
-        const idx = updated.findIndex((d) => normalizeLabel(d.label) === normalizedNew);
+        const idx = updated.findIndex((d) => d.label === item.label);
         if (idx >= 0) updated[idx] = item;
         else updated.push(item);
       }
