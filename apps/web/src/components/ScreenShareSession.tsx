@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { AudioPlayer } from "./AudioPlayer";
+import { trpc } from "@/lib/trpc";
 
 interface TemplateStep {
   instruction: string;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 type SessionStatus = "idle" | "connecting" | "ready" | "active" | "completed" | "error";
+type UploadStatus = "idle" | "uploading" | "done" | "failed" | "skipped";
 
 interface ExtractedDataItem {
   label: string;
@@ -68,6 +70,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const [countdown, setCountdown] = useState<number | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
 
   // Track which steps have had their link clicked (client-side)
   const [linkClickedSteps, setLinkClickedSteps] = useState<Set<number>>(new Set());
@@ -79,6 +82,14 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pipWindowRef = useRef<any>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // MediaRecorder refs for session recording
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+
+  // tRPC mutation for getting upload URL
+  const getUploadUrl = trpc.session.getUploadUrl.useMutation();
+  const updateSession = trpc.session.update.useMutation();
 
   // Frame hash dedup refs
   const hashCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -114,13 +125,74 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     updatePipContent();
   }, [instruction, currentStep, isAnalyzing, collectedData, countdown, completedSteps]);
 
-  // Close PiP on completion
+  // Close PiP on completion and trigger recording upload
   useEffect(() => {
-    if (status === "completed" && pipWindowRef.current) {
-      pipWindowRef.current.close();
-      pipWindowRef.current = null;
+    if (status === "completed") {
+      if (pipWindowRef.current) {
+        pipWindowRef.current.close();
+        pipWindowRef.current = null;
+      }
+      // Upload recording (non-blocking)
+      uploadRecording();
     }
   }, [status]);
+
+  // Upload recording to Azure Blob Storage
+  const uploadRecording = useCallback(async () => {
+    // Check if we have recorded chunks
+    if (recordedChunksRef.current.length === 0) {
+      setUploadStatus("skipped");
+      return;
+    }
+
+    setUploadStatus("uploading");
+
+    try {
+      // Get presigned upload URL
+      const urlResult = await getUploadUrl.mutateAsync({ sessionId });
+
+      if (!urlResult) {
+        // Azure not configured — skip silently
+        setUploadStatus("skipped");
+        return;
+      }
+
+      // Create blob from recorded chunks
+      const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+
+      // Upload via PUT with SAS URL
+      const response = await fetch(urlResult.uploadUrl, {
+        method: "PUT",
+        body: blob,
+        headers: {
+          "x-ms-blob-type": "BlockBlob",
+          "Content-Type": "video/webm",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      // Store the blobUrl in session metadata
+      try {
+        await updateSession.mutateAsync({
+          id: sessionId,
+          metadata: { recordingUrl: urlResult.blobUrl } as any,
+        });
+      } catch {
+        // Non-blocking — URL was uploaded even if metadata save fails
+      }
+
+      setUploadStatus("done");
+
+      // Free memory
+      recordedChunksRef.current = [];
+    } catch (err) {
+      console.error("Recording upload failed:", err);
+      setUploadStatus("failed");
+    }
+  }, [sessionId, getUploadUrl, updateSession]);
 
   // Countdown logic
   useEffect(() => {
@@ -349,7 +421,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           displaySurface: "monitor",   // prefer full screen
-          frameRate: { ideal: 2, max: 5 },
+          frameRate: { ideal: 24, max: 30 },
         },
         audio: false,
         // @ts-expect-error — Chrome 107+ supports surfaceTypes to hide tab/window options
@@ -372,6 +444,26 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         );
         setStatus("error");
         return;
+      }
+
+      // Start MediaRecorder for session recording
+      try {
+        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+            ? "video/webm;codecs=vp8"
+            : "video/webm";
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 2_500_000, // 2.5 Mbps
+        });
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+        };
+        recorder.start(1000); // collect chunks every 1s
+        mediaRecorderRef.current = recorder;
+      } catch (err) {
+        console.warn("MediaRecorder not available, skipping recording:", err);
       }
 
       track.addEventListener("ended", () => stopScreenShare());
@@ -404,6 +496,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
   const stopScreenShare = () => {
     if (frameIntervalRef.current) { clearInterval(frameIntervalRef.current); frameIntervalRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     if (pipWindowRef.current) { pipWindowRef.current.close(); pipWindowRef.current = null; }
@@ -459,7 +554,17 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     }, 500);
   };
 
-  useEffect(() => { return () => { stopScreenShare(); }; }, []);
+  useEffect(() => {
+    return () => {
+      stopScreenShare();
+      // Clean up MediaRecorder on unmount
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
+      recordedChunksRef.current = [];
+    };
+  }, []);
   useEffect(() => {
     const hb = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "ping" }));
@@ -751,6 +856,25 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 </p>
               </div>
             </div>
+
+            {/* Recording upload status */}
+            {uploadStatus === "uploading" && (
+              <div className="flex items-center justify-center gap-2 mt-4 text-blue-600 dark:text-blue-400">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm font-medium">Uploading recording...</span>
+              </div>
+            )}
+            {uploadStatus === "done" && (
+              <div className="flex items-center justify-center gap-2 mt-4 text-green-600 dark:text-green-400">
+                <CheckIcon className="w-4 h-4" />
+                <span className="text-sm font-medium">Recording saved ✓</span>
+              </div>
+            )}
+            {uploadStatus === "failed" && (
+              <div className="flex items-center justify-center gap-2 mt-4 text-amber-600 dark:text-amber-400">
+                <span className="text-sm">Recording upload failed</span>
+              </div>
+            )}
 
             {/* Improvement #5: Copy results + Back to Home */}
             <div className="flex flex-col items-center gap-3 mt-6">

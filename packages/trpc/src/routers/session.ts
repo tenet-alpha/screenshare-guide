@@ -2,6 +2,13 @@ import { z } from "zod";
 import { router, publicProcedure } from "../trpc";
 import type { SessionMetadata } from "@screenshare-guide/db";
 import { nanoid } from "nanoid";
+import {
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
+  type SASProtocol,
+} from "@azure/storage-blob";
 
 // Default session expiry: 24 hours
 const DEFAULT_EXPIRY_HOURS = 24;
@@ -28,6 +35,113 @@ const updateSessionSchema = z.object({
     })
     .optional(),
 });
+
+/**
+ * Generate an Azure Blob Storage SAS URL for uploading a recording.
+ * Returns null if Azure Storage is not configured (env vars missing).
+ */
+function generateUploadSasUrl(
+  sessionId: string
+): { uploadUrl: string; blobUrl: string } | null {
+  const containerName = process.env.AZURE_STORAGE_CONTAINER || "recordings";
+  const blobName = `recordings/${sessionId}.webm`;
+
+  // Try connection string first
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  if (connectionString) {
+    try {
+      const blobServiceClient =
+        BlobServiceClient.fromConnectionString(connectionString);
+      const containerClient =
+        blobServiceClient.getContainerClient(containerName);
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+      // Extract credential from the service client for SAS generation
+      // With connection string, we need to parse account name and key
+      const accountName = connectionString
+        .split(";")
+        .find((p) => p.startsWith("AccountName="))
+        ?.split("=")[1];
+      const accountKey = connectionString
+        .split(";")
+        .find((p) => p.startsWith("AccountKey="))
+        ?.split("=")
+        .slice(1)
+        .join("=");
+
+      if (!accountName || !accountKey) return null;
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(
+        accountName,
+        accountKey
+      );
+
+      const startsOn = new Date();
+      const expiresOn = new Date(startsOn.getTime() + 10 * 60 * 1000); // 10 minutes
+
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName,
+          blobName,
+          permissions: BlobSASPermissions.parse("cw"), // create + write
+          startsOn,
+          expiresOn,
+          protocol: "https" as SASProtocol,
+        },
+        sharedKeyCredential
+      ).toString();
+
+      return {
+        uploadUrl: `${blockBlobClient.url}?${sasToken}`,
+        blobUrl: blockBlobClient.url,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Try account name + key
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+
+  if (!accountName || !accountKey) return null;
+
+  try {
+    const sharedKeyCredential = new StorageSharedKeyCredential(
+      accountName,
+      accountKey
+    );
+    const blobServiceClient = new BlobServiceClient(
+      `https://${accountName}.blob.core.windows.net`,
+      sharedKeyCredential
+    );
+    const containerClient =
+      blobServiceClient.getContainerClient(containerName);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+    const startsOn = new Date();
+    const expiresOn = new Date(startsOn.getTime() + 10 * 60 * 1000); // 10 minutes
+
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName,
+        blobName,
+        permissions: BlobSASPermissions.parse("cw"), // create + write
+        startsOn,
+        expiresOn,
+        protocol: "https" as SASProtocol,
+      },
+      sharedKeyCredential
+    ).toString();
+
+    return {
+      uploadUrl: `${blockBlobClient.url}?${sasToken}`,
+      blobUrl: blockBlobClient.url,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // Hardcoded Instagram Audience Proof template
 const INSTAGRAM_PROOF_TEMPLATE = {
@@ -387,5 +501,15 @@ export const sessionRouter = router({
         .executeTakeFirstOrThrow();
 
       return session;
+    }),
+
+  /**
+   * Get a presigned Azure Blob Storage SAS URL for uploading a session recording.
+   * Returns null if Azure Storage is not configured — recording is optional.
+   */
+  getUploadUrl: publicProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      return generateUploadSasUrl(input.sessionId);
     }),
 });
