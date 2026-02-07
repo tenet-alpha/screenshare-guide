@@ -94,9 +94,9 @@ resource "azurerm_linux_web_app" "main" {
     "CORS_ORIGIN"                    = "https://${azurerm_static_web_app.frontend.default_host_name}"
     "LOG_LEVEL"                      = "info"
     "VISION_PROVIDER"                = "azure"
-    "TTS_PROVIDER"                   = "elevenlabs"
+    "TTS_PROVIDER"                   = "azure"
     "AZURE_OPENAI_ENDPOINT"          = var.azure_openai_endpoint
-    "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5.2"
+    "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5-mini"
     "ELEVENLABS_VOICE_ID"            = "21m00Tcm4TlvDq8ikWAM"
     "ELEVENLABS_MODEL_ID"            = "eleven_turbo_v2_5"
     "AZURE_SPEECH_ENDPOINT"          = var.azure_speech_endpoint

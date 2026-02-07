@@ -13,13 +13,15 @@ interface SessionState {
   status: "waiting" | "analyzing" | "speaking" | "completed";
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
+  linkClicked: Record<number, boolean>;
+  allExtractedData: Array<{ label: string; value: string }>;
 }
 
 // In-memory session states (production would use Redis)
 const activeSessions = new Map<string, SessionState>();
 
 // Minimum time between frame analyses (debouncing)
-const ANALYSIS_DEBOUNCE_MS = 2000;
+const ANALYSIS_DEBOUNCE_MS = 800;
 
 // Consecutive successful analyses needed to advance
 const SUCCESS_THRESHOLD = 1;
@@ -27,7 +29,7 @@ const SUCCESS_THRESHOLD = 1;
 // Rate limiting for WebSocket messages
 const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
 const WS_RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const WS_RATE_LIMIT_MAX = 20; // 20 messages per window
+const WS_RATE_LIMIT_MAX = 30; // 30 messages per window (increased for 1fps)
 
 function checkWsRateLimit(token: string): boolean {
   const now = Date.now();
@@ -103,6 +105,8 @@ export const websocketHandler = new Elysia()
           status: "waiting",
           lastAnalysisTime: 0,
           consecutiveSuccesses: 0,
+          linkClicked: {},
+          allExtractedData: [],
         };
 
         activeSessions.set(token, state);
@@ -163,6 +167,10 @@ export const websocketHandler = new Elysia()
             await handleFrame(ws, state, data.imageData, token);
             break;
 
+          case "linkClicked":
+            handleLinkClicked(ws, state, data.step);
+            break;
+
           case "requestHint":
             await handleHintRequest(ws, state);
             break;
@@ -194,6 +202,49 @@ export const websocketHandler = new Elysia()
   });
 
 /**
+ * Handle linkClicked message from client
+ */
+function handleLinkClicked(ws: any, state: SessionState, step: number) {
+  log.info("Link clicked by user", {
+    sessionId: state.sessionId,
+    step,
+  });
+  state.linkClicked[step] = true;
+}
+
+/**
+ * Accumulate extracted data (dedup by label, keep latest)
+ */
+function accumulateExtractedData(
+  state: SessionState,
+  items: Array<{ label: string; value: string }>
+) {
+  if (!items?.length) return;
+  for (const item of items) {
+    if (!item.label || !item.value) continue;
+    const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
+    if (idx >= 0) {
+      state.allExtractedData[idx] = item;
+    } else {
+      state.allExtractedData.push(item);
+    }
+  }
+}
+
+/**
+ * For Step 3 (index 2): check if all required metrics are present
+ */
+function hasAllStep3Metrics(state: SessionState): boolean {
+  const labels = state.allExtractedData.map((d) => d.label.toLowerCase());
+  const hasReach = labels.some((l) => l.includes("reach"));
+  const hasNonFollowers = labels.some((l) => l.includes("non-follower") || l.includes("non follower"));
+  const hasFollowers = labels.some(
+    (l) => l.includes("follower") && !l.includes("non-follower") && !l.includes("non follower")
+  );
+  return hasReach && hasNonFollowers && hasFollowers;
+}
+
+/**
  * Handle incoming frame for analysis
  */
 async function handleFrame(
@@ -219,7 +270,7 @@ async function handleFrame(
   const currentStepData = state.steps[state.currentStep];
   if (!currentStepData) {
     state.status = "completed";
-    ws.send(JSON.stringify({ type: "completed", message: "All steps completed!" }));
+    ws.send(JSON.stringify({ type: "completed", message: "All steps completed!", extractedData: state.allExtractedData }));
     return;
   }
 
@@ -236,6 +287,11 @@ async function handleFrame(
 
     logAI("vision", "analyzeFrame", Date.now() - startTime);
 
+    // Accumulate any extracted data
+    if (analysis.extractedData?.length) {
+      accumulateExtractedData(state, analysis.extractedData);
+    }
+
     ws.send(
       JSON.stringify({
         type: "analysis",
@@ -247,6 +303,16 @@ async function handleFrame(
     );
 
     if (analysis.matchesSuccessCriteria && analysis.confidence > 0.7) {
+      // For step 3 (index 2), require all three metrics before advancing
+      if (state.currentStep === 2 && !hasAllStep3Metrics(state)) {
+        log.info("Step 3: not all metrics found yet", {
+          sessionId: state.sessionId,
+          extractedData: state.allExtractedData,
+        });
+        state.status = "waiting";
+        return;
+      }
+
       state.consecutiveSuccesses++;
 
       if (state.consecutiveSuccesses >= SUCCESS_THRESHOLD) {
@@ -273,20 +339,33 @@ async function handleFrame(
           .join(", ");
 
         if (state.currentStep >= state.totalSteps) {
-          // Session complete
+          // Session complete — store extracted data in session metadata
           state.status = "completed";
+
+          const metadataJson = JSON.stringify({
+            extractedData: state.allExtractedData,
+            completedAt: new Date().toISOString(),
+          });
+
           await db
             .updateTable("sessions")
-            .set({ status: "completed", updated_at: new Date() })
+            .set({
+              status: "completed",
+              metadata: metadataJson,
+              updated_at: new Date(),
+            })
             .where("token", "=", token)
             .execute();
 
-          log.info("Session completed", { sessionId: state.sessionId });
+          log.info("Session completed", {
+            sessionId: state.sessionId,
+            extractedData: state.allExtractedData,
+          });
 
           ws.send(JSON.stringify({
             type: "completed",
             message: "All steps completed!",
-            extractedData: analysis.extractedData || [],
+            extractedData: state.allExtractedData,
           }));
           const completionMsg = extractedSummary
             ? `I've captured everything. ${extractedSummary}. Great job — all steps are complete!`
@@ -315,7 +394,6 @@ async function handleFrame(
 
       // Provide contextual guidance based on what vision sees
       if (analysis.suggestedAction) {
-        // Include what was detected to show awareness
         const seenContext = analysis.description !== "Unable to analyze frame"
           ? `I can see ${analysis.description.toLowerCase()}. `
           : "";
@@ -367,7 +445,7 @@ async function handleSkipStep(ws: any, state: SessionState, token: string) {
 
   if (state.currentStep >= state.totalSteps) {
     state.status = "completed";
-    ws.send(JSON.stringify({ type: "completed", message: "All steps completed!" }));
+    ws.send(JSON.stringify({ type: "completed", message: "All steps completed!", extractedData: state.allExtractedData }));
   } else {
     const nextStep = state.steps[state.currentStep];
     ws.send(

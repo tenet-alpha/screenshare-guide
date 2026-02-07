@@ -26,7 +26,7 @@ class AzureOpenAIVisionProvider implements VisionProvider {
   constructor() {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_VISION || "gpt-5.2";
+    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_VISION || "gpt-5-mini";
 
     if (!endpoint) {
       throw new Error("AZURE_OPENAI_ENDPOINT environment variable is required");
@@ -99,7 +99,7 @@ Respond in JSON format only:
           "api-key": this.apiKey,
         },
         body: JSON.stringify({
-          max_completion_tokens: 1500,
+          max_completion_tokens: 500,
           messages: [
             {
               role: "system",
@@ -112,7 +112,7 @@ Respond in JSON format only:
                   type: "image_url",
                   image_url: {
                     url: imageUrl,
-                    detail: "high",
+                    detail: "low",
                   },
                 },
                 {

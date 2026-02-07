@@ -29,7 +29,77 @@ const updateSessionSchema = z.object({
     .optional(),
 });
 
+// Hardcoded Instagram Audience Proof template
+const INSTAGRAM_PROOF_TEMPLATE = {
+  name: "Instagram Audience Proof",
+  description: "Verify Instagram audience metrics via live screen analysis",
+  steps: [
+    {
+      instruction: "Open your Meta Business Suite",
+      successCriteria:
+        "Meta Business Suite home page is visible. Extract the Instagram handle/username shown on the page.",
+      hints: [],
+    },
+    {
+      instruction: "Navigate to Insights",
+      successCriteria:
+        "The Insights page is visible showing engagement and reach metrics.",
+      hints: [],
+    },
+    {
+      instruction: "Capture audience metrics",
+      successCriteria:
+        "Extract the Reach number, Non-followers count, and Followers count from the Insights page. All three metrics must be found.",
+      hints: [],
+    },
+  ],
+};
+
 export const sessionRouter = router({
+  /**
+   * Create a proof session for Instagram audience verification.
+   * Finds or creates the hardcoded template, then creates a session with 24h expiry.
+   */
+  createProof: publicProcedure.mutation(async ({ ctx }) => {
+    // Find or create the hardcoded template
+    let template = await ctx.db
+      .selectFrom("templates")
+      .selectAll()
+      .where("name", "=", INSTAGRAM_PROOF_TEMPLATE.name)
+      .executeTakeFirst();
+
+    if (!template) {
+      template = await ctx.db
+        .insertInto("templates")
+        .values({
+          name: INSTAGRAM_PROOF_TEMPLATE.name,
+          description: INSTAGRAM_PROOF_TEMPLATE.description,
+          steps: JSON.stringify(INSTAGRAM_PROOF_TEMPLATE.steps),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    }
+
+    const token = nanoid(12);
+    const expiresAt = new Date(Date.now() + DEFAULT_EXPIRY_HOURS * 60 * 60 * 1000);
+
+    const session = await ctx.db
+      .insertInto("sessions")
+      .values({
+        token,
+        template_id: template.id,
+        expires_at: expiresAt,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return {
+      shareUrl: `/s/${token}`,
+      token,
+      sessionId: session.id,
+    };
+  }),
+
   /**
    * Create a new session with a unique token
    */

@@ -6,8 +6,8 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ScreenShare Guide",
-  description: "AI-powered screen sharing guidance platform",
+  title: "Instagram Audience Proof",
+  description: "Prove your Instagram reach and engagement via live screen verification",
 };
 
 export default function RootLayout({
