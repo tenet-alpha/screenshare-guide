@@ -302,9 +302,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     };
     ws.onerror = () => { setError("Connection error. Please refresh the page."); setStatus("error"); };
     ws.onclose = () => {
-      if (status !== "completed" && status !== "error") {
-        setTimeout(() => { if (wsRef.current?.readyState !== WebSocket.OPEN) connectWebSocket(); }, 3000);
-      }
+      // Only auto-reconnect if we're still actively in a session
+      // wsRef.current is set to null by stopScreenShare(), so check that too
+      setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {
+          connectWebSocket();
+        }
+      }, 3000);
     };
     wsRef.current = ws;
   }, [token, status]);
