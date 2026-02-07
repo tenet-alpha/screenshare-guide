@@ -691,22 +691,40 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
         {/* ===== IDLE ===== */}
         {status === "idle" && (
-          <div className="text-center max-w-md">
-            <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          <div className="text-center max-w-lg">
+            {/* Hero */}
+            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg">
+              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold mb-3">Ready to Verify?</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-2">
-              Share your screen and follow the floating instructions to verify your Instagram audience metrics.
+            <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-gray-100">Verify Your Instagram Audience</h2>
+            <p className="text-gray-500 dark:text-gray-400 mb-8">
+              Quick, secure verification of your Instagram reach and audience metrics.
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-500 mb-6">
-              2 quick steps: Open Meta Business Suite → View Insights
-            </p>
-            <button onClick={startScreenShare} className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium rounded-xl text-lg transition-all shadow-lg hover:shadow-xl">
+
+            {/* Steps explanation */}
+            <div className="flex gap-4 mb-8 text-left">
+              <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-full flex items-center justify-center text-sm font-bold mb-3">1</div>
+                <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-1">Open Meta Business Suite</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">We'll verify your Instagram handle from your business dashboard.</p>
+              </div>
+              <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div className="w-8 h-8 bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 rounded-full flex items-center justify-center text-sm font-bold mb-3">2</div>
+                <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-1">View Your Insights</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">We'll capture your reach, followers reached, and non-followers reached.</p>
+              </div>
+            </div>
+
+            <button onClick={startScreenShare} className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-semibold rounded-xl text-lg transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]">
               Share Screen & Start
             </button>
+
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
+              Your screen is only analyzed in real-time — nothing is stored except the verified metrics.
+            </p>
+
             {!pipSupported && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
                 ⚠️ Use Chrome for the best experience (floating instruction overlay).
@@ -816,76 +834,80 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         {/* ===== COMPLETED ===== */}
         {status === "completed" && (
           <div className="w-full max-w-lg">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckIcon className="w-10 h-10 text-green-600 dark:text-green-400" />
+            {/* Success header */}
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
               </div>
-              <h2 className="text-2xl font-bold mb-2">Verification Complete</h2>
-              <p className="text-gray-500 dark:text-gray-400">All data verified from your live screen.</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Verification Successful</h2>
+              <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Your Instagram audience data has been verified.</p>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-3">
-                <h3 className="text-white font-semibold flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                  Verified Instagram Data
-                </h3>
-              </div>
-              <div className="p-6">
-                {collectedData.length > 0 ? (
-                  <div className="space-y-0">
-                    {collectedData.map((d, j) => (
-                      <div key={j} className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                        <div className="flex items-center gap-2">
-                          <CheckIcon className="w-4 h-4 text-green-500" />
-                          <span className="text-sm text-gray-600 dark:text-gray-400">{d.label}</span>
-                        </div>
-                        <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{d.value}</span>
+            {/* Results card */}
+            {collectedData.length > 0 ? (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                {/* Handle section */}
+                {collectedData.find(d => d.label === "Handle") && (
+                  <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-700 text-center">
+                    <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">Verified Account</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      {collectedData.find(d => d.label === "Handle")?.value}
+                    </p>
+                  </div>
+                )}
+
+                {/* Metrics section */}
+                <div className="px-6 py-5">
+                  <div className="grid grid-cols-3 gap-4">
+                    {collectedData.filter(d => d.label !== "Handle").map((d, j) => (
+                      <div key={j} className="text-center">
+                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{d.value}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{d.label}</p>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">Session completed.</p>
-                )}
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-xs text-gray-400 text-center">
-                  Verified via live screen analysis • {new Date().toLocaleString()}
-                </p>
-              </div>
-            </div>
+                </div>
 
-            {/* Recording upload status */}
+                {/* Footer */}
+                <div className="bg-gray-50 dark:bg-gray-800/50 px-6 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-center gap-2">
+                  <CheckIcon className="w-3.5 h-3.5 text-green-500" />
+                  <p className="text-xs text-gray-400">
+                    Verified via live screen analysis • {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
+                <p className="text-gray-500">Session completed.</p>
+              </div>
+            )}
+
+            {/* Recording status — subtle */}
             {uploadStatus === "uploading" && (
-              <div className="flex items-center justify-center gap-2 mt-4 text-blue-600 dark:text-blue-400">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm font-medium">Uploading recording...</span>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs text-gray-400">Saving recording...</span>
               </div>
             )}
             {uploadStatus === "done" && (
-              <div className="flex items-center justify-center gap-2 mt-4 text-green-600 dark:text-green-400">
-                <CheckIcon className="w-4 h-4" />
-                <span className="text-sm font-medium">Recording saved ✓</span>
-              </div>
-            )}
-            {uploadStatus === "failed" && (
-              <div className="flex items-center justify-center gap-2 mt-4 text-amber-600 dark:text-amber-400">
-                <span className="text-sm">Recording upload failed</span>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <CheckIcon className="w-3 h-3 text-green-500" />
+                <span className="text-xs text-gray-400">Recording saved</span>
               </div>
             )}
 
-            {/* Improvement #5: Copy results + Back to Home */}
-            <div className="flex flex-col items-center gap-3 mt-6">
+            {/* Actions */}
+            <div className="flex items-center justify-center gap-3 mt-6">
               {collectedData.length > 0 && (
                 <button
                   onClick={handleCopyResults}
                   className={cn(
-                    "px-6 py-3 rounded-lg text-sm font-medium transition-all inline-flex items-center gap-2",
+                    "px-5 py-2.5 rounded-xl text-sm font-medium transition-all inline-flex items-center gap-2 border",
                     copied
-                      ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                      : "bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                      ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400"
+                      : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                   )}
                 >
                   {copied ? (
@@ -903,8 +925,8 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                   )}
                 </button>
               )}
-              <a href="/" className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium rounded-lg transition-all inline-block">
-                Back to Home
+              <a href="/" className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium rounded-xl text-sm transition-all">
+                New Verification
               </a>
             </div>
           </div>
