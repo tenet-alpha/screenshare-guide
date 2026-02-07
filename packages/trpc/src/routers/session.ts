@@ -97,6 +97,13 @@ export const sessionRouter = router({
       shareUrl: `/s/${token}`,
       token,
       sessionId: session.id,
+      template: {
+        id: template.id,
+        name: template.name,
+        steps: typeof template.steps === "string"
+          ? JSON.parse(template.steps)
+          : template.steps,
+      },
     };
   }),
 
