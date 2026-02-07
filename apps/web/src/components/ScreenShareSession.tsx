@@ -374,7 +374,19 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
       track.addEventListener("ended", () => stopScreenShare());
       connectWebSocket();
-      startFrameSampling();
+
+      // Wait for video to actually have decoded frames before sampling
+      const video = videoRef.current!;
+      const onCanPlay = () => {
+        video.removeEventListener("canplay", onCanPlay);
+        startFrameSampling();
+      };
+      if (video.readyState >= 3) {
+        startFrameSampling(); // already has data
+      } else {
+        video.addEventListener("canplay", onCanPlay);
+      }
+
       setStatus("active");
       // Auto-open PiP
       if ("documentPictureInPicture" in window) {
@@ -500,9 +512,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Hidden video + canvas for frame capture only */}
-      <video ref={videoRef} autoPlay playsInline muted className="hidden" />
-      <canvas ref={canvasRef} className="hidden" />
+      {/* Off-screen video + canvas for frame capture — NOT display:none (breaks frame decoding) */}
+      <video ref={videoRef} autoPlay playsInline muted className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
+      <canvas ref={canvasRef} className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
 
       {/* Improvement #6: Sticky instruction bar for non-PiP browsers */}
       {status === "active" && !pipSupported && (
