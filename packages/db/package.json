@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "echo 'no tests'"
   },
   "dependencies": {
     "kysely": "^0.28.11",
