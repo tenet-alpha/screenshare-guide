@@ -83,12 +83,12 @@ function accumulateExtractedData(
 }
 
 // Extraction schemas (must match websocket.ts)
-// Step 0: Open MBS (no extraction), Step 1: Handle, Step 2: Open Insights (no extraction), Step 3: Metrics
+// Step 0: Open MBS + extract Handle, Step 1: Open Insights + extract metrics
 const STEP_EXTRACTION_SCHEMAS: Record<number, Array<{ field: string; description: string; required: boolean }>> = {
-  1: [
+  0: [
     { field: "Handle", description: "Instagram handle", required: true },
   ],
-  3: [
+  1: [
     { field: "Reach", description: "Total reach", required: true },
     { field: "Non-followers reached", description: "Non-followers reached", required: true },
     { field: "Followers reached", description: "Followers reached", required: true },
@@ -146,22 +146,14 @@ function createState(
     sessionId: "test-sess",
     templateId: "test-tmpl",
     currentStep: 0,
-    totalSteps: 4,
+    totalSteps: 2,
     steps: [
       {
-        instruction: "Open Meta Business Suite",
-        successCriteria: "MBS home page visible",
+        instruction: "Open Meta Business Suite and verify your Instagram handle",
+        successCriteria: "MBS home page visible with handle",
       },
       {
-        instruction: "Verify Instagram handle",
-        successCriteria: "Handle visible on page",
-      },
-      {
-        instruction: "Open Account Insights",
-        successCriteria: "Insights page visible",
-      },
-      {
-        instruction: "Capture audience metrics",
+        instruction: "Open Account Insights and capture your audience metrics",
         successCriteria: "All metrics found",
       },
     ],
@@ -242,9 +234,9 @@ describe("linkClicked handling", () => {
 });
 
 describe("hasAllRequiredFields (schema-based validation)", () => {
-  it("returns true when all step 3 (metrics) fields are present", () => {
+  it("returns true when all step 1 (metrics) fields are present", () => {
     const state = createState({
-      currentStep: 3,
+      currentStep: 1,
       allExtractedData: [
         { label: "Reach", value: "12,345" },
         { label: "Non-followers reached", value: "8,000" },
@@ -254,45 +246,35 @@ describe("hasAllRequiredFields (schema-based validation)", () => {
     expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false with no data for step 3", () => {
-    const state = createState({ currentStep: 3, allExtractedData: [] });
+  it("returns false with no data for step 1", () => {
+    const state = createState({ currentStep: 1, allExtractedData: [] });
     expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns false with partial step 3 data", () => {
+  it("returns false with partial step 1 data", () => {
     const state = createState({
-      currentStep: 3,
+      currentStep: 1,
       allExtractedData: [{ label: "Reach", value: "10,000" }],
     });
     expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns true for step 1 when Handle is present", () => {
+  it("returns true for step 0 when Handle is present", () => {
     const state = createState({
-      currentStep: 1,
+      currentStep: 0,
       allExtractedData: [{ label: "Handle", value: "@testuser" }],
     });
     expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false for step 1 when Handle is missing", () => {
-    const state = createState({ currentStep: 1, allExtractedData: [] });
-    expect(hasAllRequiredFields(state)).toBe(false);
-  });
-
-  it("returns true for step 0 (no schema — just page detection)", () => {
+  it("returns false for step 0 when Handle is missing", () => {
     const state = createState({ currentStep: 0, allExtractedData: [] });
-    expect(hasAllRequiredFields(state)).toBe(true);
-  });
-
-  it("returns true for step 2 (no schema — just page detection)", () => {
-    const state = createState({ currentStep: 2, allExtractedData: [] });
-    expect(hasAllRequiredFields(state)).toBe(true);
+    expect(hasAllRequiredFields(state)).toBe(false);
   });
 
   it("returns true with extra data items beyond schema", () => {
     const state = createState({
-      currentStep: 3,
+      currentStep: 1,
       allExtractedData: [
         { label: "Handle", value: "@testuser" },
         { label: "Reach", value: "12,345" },

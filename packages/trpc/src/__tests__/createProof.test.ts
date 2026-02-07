@@ -15,27 +15,15 @@ const INSTAGRAM_PROOF_TEMPLATE = {
   description: "Verify Instagram audience metrics via live screen analysis",
   steps: [
     {
-      instruction: "Open Meta Business Suite",
+      instruction: "Open Meta Business Suite and verify your Instagram handle",
       successCriteria:
-        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads, etc.",
+        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads. The Instagram handle/username must be visible and extracted.",
       hints: [],
     },
     {
-      instruction: "Verify Instagram handle",
+      instruction: "Open Account Insights and capture your audience metrics",
       successCriteria:
-        "The Instagram handle/username is visible on the Meta Business Suite page. Extract it.",
-      hints: [],
-    },
-    {
-      instruction: "Open Account Insights",
-      successCriteria:
-        "The Insights page is visible showing engagement and reach metrics with charts and numbers.",
-      hints: [],
-    },
-    {
-      instruction: "Capture audience metrics",
-      successCriteria:
-        "Extract the Reach number, Non-followers count, and Followers count from the Insights page. All three metrics must be found.",
+        "The Insights overview page is open showing a summary section with actual numeric values for Reach, including a breakdown of Non-followers reached and Followers reached. This is NOT the sidebar menu — it must be the actual Insights dashboard with charts, numbers, and date ranges visible.",
       hints: [],
     },
   ],
@@ -189,7 +177,7 @@ describe("createProof endpoint", () => {
       const result = await runCreateProof(db);
 
       expect(Array.isArray(result.template.steps)).toBe(true);
-      expect(result.template.steps).toHaveLength(4);
+      expect(result.template.steps).toHaveLength(2);
       expect(result.template.steps[0]).toHaveProperty("instruction");
     });
 
@@ -205,7 +193,7 @@ describe("createProof endpoint", () => {
       const result = await runCreateProof(db);
 
       expect(Array.isArray(result.template.steps)).toBe(true);
-      expect(result.template.steps).toHaveLength(4);
+      expect(result.template.steps).toHaveLength(2);
     });
 
     it("steps are never a string in the response", async () => {
@@ -224,11 +212,11 @@ describe("createProof endpoint", () => {
   });
 
   describe("template structure", () => {
-    it("template has exactly 4 steps", async () => {
+    it("template has exactly 2 steps", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
-      expect(result.template.steps).toHaveLength(4);
+      expect(result.template.steps).toHaveLength(2);
     });
 
     it("each step has instruction and successCriteria", async () => {
@@ -245,32 +233,20 @@ describe("createProof endpoint", () => {
       }
     });
 
-    it("step 1 references Meta Business Suite", async () => {
+    it("step 1 references Meta Business Suite and handle", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
       expect(result.template.steps[0].instruction).toContain("Meta Business Suite");
+      expect(result.template.steps[0].instruction.toLowerCase()).toContain("handle");
     });
 
-    it("step 2 references handle verification", async () => {
+    it("step 2 references Insights and metrics", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
-      expect(result.template.steps[1].instruction.toLowerCase()).toContain("handle");
-    });
-
-    it("step 3 references Insights", async () => {
-      const db = createMockDb({ existingTemplate: null });
-      const result = await runCreateProof(db);
-
-      expect(result.template.steps[2].instruction).toContain("Insights");
-    });
-
-    it("step 4 references audience metrics", async () => {
-      const db = createMockDb({ existingTemplate: null });
-      const result = await runCreateProof(db);
-
-      expect(result.template.steps[3].instruction.toLowerCase()).toContain("metrics");
+      expect(result.template.steps[1].instruction).toContain("Insights");
+      expect(result.template.steps[1].instruction.toLowerCase()).toContain("metrics");
     });
   });
 

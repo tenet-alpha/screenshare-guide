@@ -37,7 +37,7 @@ const STEP_LINKS: Record<number, { url: string; label: string }> = {
     url: "https://business.facebook.com/latest/home",
     label: "Open Meta Business Suite →",
   },
-  2: {
+  1: {
     url: "https://business.facebook.com/latest/insights/",
     label: "Open Account Insights →",
   },
@@ -208,26 +208,22 @@ describe("STEP_LINKS mapping", () => {
     );
   });
 
-  it("step 1 has no link (handle validation)", () => {
-    expect(STEP_LINKS[1]).toBeUndefined();
-  });
-
-  it("step 2 maps to business.facebook.com/latest/insights/", () => {
-    expect(STEP_LINKS[2].url).toBe(
+  it("step 1 maps to business.facebook.com/latest/insights/", () => {
+    expect(STEP_LINKS[1].url).toBe(
       "https://business.facebook.com/latest/insights/"
     );
   });
 
-  it("step 3 has no link (metrics capture)", () => {
-    expect(STEP_LINKS[3]).toBeUndefined();
+  it("step 2 has no link (only 2 steps)", () => {
+    expect(STEP_LINKS[2]).toBeUndefined();
   });
 
   it("step 0 label says Meta Business Suite", () => {
     expect(STEP_LINKS[0].label).toContain("Meta Business Suite");
   });
 
-  it("step 2 label says Insights", () => {
-    expect(STEP_LINKS[2].label).toContain("Insights");
+  it("step 1 label says Insights", () => {
+    expect(STEP_LINKS[1].label).toContain("Insights");
   });
 });
 
@@ -292,7 +288,7 @@ describe("accumulateData dedup", () => {
 });
 
 describe("WebSocket message handling state transitions", () => {
-  const TOTAL_STEPS = 4;
+  const TOTAL_STEPS = 2;
 
   it("'connected' sets currentStep and instruction", () => {
     const state = createInitialWsState();
@@ -302,14 +298,14 @@ describe("WebSocket message handling state transitions", () => {
         type: "connected",
         sessionId: "s1",
         currentStep: 0,
-        totalSteps: 4,
-        instruction: "Open Meta Business Suite",
+        totalSteps: 2,
+        instruction: "Open Meta Business Suite and verify your Instagram handle",
       },
       TOTAL_STEPS
     );
 
     expect(next.currentStep).toBe(0);
-    expect(next.instruction).toBe("Open Meta Business Suite");
+    expect(next.instruction).toBe("Open Meta Business Suite and verify your Instagram handle");
   });
 
   it("'connected' clamps currentStep to valid range", () => {
@@ -320,7 +316,7 @@ describe("WebSocket message handling state transitions", () => {
       TOTAL_STEPS
     );
 
-    expect(next.currentStep).toBe(3); // clamped to totalSteps - 1
+    expect(next.currentStep).toBe(1); // clamped to totalSteps - 1
   });
 
   it("'analyzing' sets isAnalyzing to true", () => {
@@ -352,19 +348,19 @@ describe("WebSocket message handling state transitions", () => {
       {
         type: "stepComplete",
         currentStep: 1,
-        totalSteps: 4,
-        nextInstruction: "Verify Instagram handle",
+        totalSteps: 2,
+        nextInstruction: "Open Account Insights and capture your audience metrics",
       },
       TOTAL_STEPS
     );
 
     expect(next.completedSteps.has(0)).toBe(true);
     expect(next.currentStep).toBe(1);
-    expect(next.instruction).toBe("Verify Instagram handle");
+    expect(next.instruction).toBe("Open Account Insights and capture your audience metrics");
   });
 
   it("'completed' marks last step and starts countdown", () => {
-    const state = { ...createInitialWsState(), currentStep: 3 };
+    const state = { ...createInitialWsState(), currentStep: 1 };
     const next = handleMessage(
       state,
       {
@@ -379,7 +375,7 @@ describe("WebSocket message handling state transitions", () => {
       TOTAL_STEPS
     );
 
-    expect(next.completedSteps.has(3)).toBe(true);
+    expect(next.completedSteps.has(1)).toBe(true);
     expect(next.countdown).toBe(5);
     expect(next.collectedData).toHaveLength(3);
   });
@@ -395,7 +391,7 @@ describe("WebSocket message handling state transitions", () => {
     expect(next.status).toBe("error");
   });
 
-  it("full flow: connected → 3x stepComplete → completed", () => {
+  it("full flow: connected → stepComplete → completed", () => {
     let state = createInitialWsState();
 
     // Connected
@@ -415,31 +411,13 @@ describe("WebSocket message handling state transitions", () => {
     expect(state.completedSteps.has(0)).toBe(true);
     expect(state.currentStep).toBe(1);
 
-    // Step 2 complete
-    state = handleMessage(
-      state,
-      { type: "stepComplete", currentStep: 2, nextInstruction: "Step 3" },
-      TOTAL_STEPS
-    );
-    expect(state.completedSteps.has(1)).toBe(true);
-    expect(state.currentStep).toBe(2);
-
-    // Step 3 complete
-    state = handleMessage(
-      state,
-      { type: "stepComplete", currentStep: 3, nextInstruction: "Step 4" },
-      TOTAL_STEPS
-    );
-    expect(state.completedSteps.has(2)).toBe(true);
-    expect(state.currentStep).toBe(3);
-
     // Session completed
     state = handleMessage(
       state,
       { type: "completed", extractedData: [{ label: "Reach", value: "10K" }] },
       TOTAL_STEPS
     );
-    expect(state.completedSteps.has(3)).toBe(true);
+    expect(state.completedSteps.has(1)).toBe(true);
     expect(state.countdown).toBe(5);
     expect(state.collectedData).toHaveLength(1);
   });

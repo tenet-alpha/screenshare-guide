@@ -30,11 +30,10 @@ interface ExtractedDataItem {
   value: string;
 }
 
-// Step link URLs for the Instagram proof flow
-// Step 0: Open MBS, Step 2: Open Insights (steps 1 & 3 have no links)
+// Step link URLs for the Instagram proof flow (2-step)
 const STEP_LINKS: Record<number, { url: string; label: string }> = {
   0: { url: "https://business.facebook.com/latest/home", label: "Open Meta Business Suite →" },
-  2: { url: "https://business.facebook.com/latest/insights/", label: "Open Account Insights →" },
+  1: { url: "https://business.facebook.com/latest/insights/", label: "Open Account Insights →" },
 };
 
 // Frame hash staleness threshold (ms) — resend even if unchanged after this

@@ -149,27 +149,15 @@ const INSTAGRAM_PROOF_TEMPLATE = {
   description: "Verify Instagram audience metrics via live screen analysis",
   steps: [
     {
-      instruction: "Open Meta Business Suite",
+      instruction: "Open Meta Business Suite and verify your Instagram handle",
       successCriteria:
-        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads, etc.",
+        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads. The Instagram handle/username must be visible and extracted.",
       hints: [],
     },
     {
-      instruction: "Verify Instagram handle",
+      instruction: "Open Account Insights and capture your audience metrics",
       successCriteria:
-        "The Instagram handle/username is visible on the Meta Business Suite page. Extract it.",
-      hints: [],
-    },
-    {
-      instruction: "Open Account Insights",
-      successCriteria:
-        "The Insights page is visible showing engagement and reach metrics with charts and numbers.",
-      hints: [],
-    },
-    {
-      instruction: "Capture audience metrics",
-      successCriteria:
-        "Extract the Reach number, Non-followers count, and Followers count from the Insights page. All three metrics must be found.",
+        "The Insights overview page is open showing a summary section with actual numeric values for Reach, including a breakdown of Non-followers reached and Followers reached. This is NOT the sidebar menu — it must be the actual Insights dashboard with charts, numbers, and date ranges visible.",
       hints: [],
     },
   ],

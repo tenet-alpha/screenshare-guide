@@ -6,25 +6,20 @@ import { logWebSocket, logAI, log } from "./lib/logger";
 
 /**
  * Steps that require a link click before analysis begins.
- * Step 0: "Open Meta Business Suite" — link button shown
- * Step 2: "Open Account Insights" — link button shown
+ * Both steps have link buttons — analysis is gated until clicked.
  */
-const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 2]);
+const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 1]);
 
 /**
  * Extraction schemas per step index.
- * Step 0: Open MBS — no extraction (just page detection)
- * Step 1: Validate handle — extract Handle
- * Step 2: Open Insights — no extraction (just page detection)
- * Step 3: Gather metrics — extract Reach, Non-followers, Followers
+ * Step 0: Open MBS + extract Handle
+ * Step 1: Open Insights + extract Reach, Non-followers, Followers
  */
 const STEP_EXTRACTION_SCHEMAS: Record<number, ExtractionField[]> = {
-  // Step 0 — no extraction, just detect MBS page
-  1: [
+  0: [
     { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
   ],
-  // Step 2 — no extraction, just detect Insights page
-  3: [
+  1: [
     { field: "Reach", description: "Total reach number", required: true },
     { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
     { field: "Followers reached", description: "Number of followers reached", required: true },
