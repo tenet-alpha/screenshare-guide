@@ -97,9 +97,7 @@ resource "azurerm_linux_web_app" "main" {
     "TTS_PROVIDER"                   = "azure"
     "AZURE_OPENAI_ENDPOINT"          = var.azure_openai_endpoint
     "AZURE_OPENAI_DEPLOYMENT_VISION" = "gpt-5-mini"
-    "ELEVENLABS_VOICE_ID"            = "21m00Tcm4TlvDq8ikWAM"
-    "ELEVENLABS_MODEL_ID"            = "eleven_turbo_v2_5"
-    "AZURE_SPEECH_ENDPOINT"          = var.azure_speech_endpoint
+    "AZURE_SPEECH_ENDPOINT"          = "https://${azurerm_resource_group.main.location}.tts.speech.microsoft.com"
     "AZURE_SPEECH_VOICE_NAME"        = "en-US-JennyNeural"
     "AZURE_STORAGE_CONTAINER"        = azurerm_storage_container.recordings.name
 
@@ -109,7 +107,6 @@ resource "azurerm_linux_web_app" "main" {
 
     # ── API Key secrets (Key Vault references — you set values manually) ──
     "AZURE_OPENAI_API_KEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["AZURE-OPENAI-API-KEY"].versionless_id})"
-    "ELEVENLABS_API_KEY"   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["ELEVENLABS-API-KEY"].versionless_id})"
     "ANTHROPIC_API_KEY"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["ANTHROPIC-API-KEY"].versionless_id})"
     "AZURE_SPEECH_API_KEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.secrets["AZURE-SPEECH-API-KEY"].versionless_id})"
   }
@@ -170,6 +167,17 @@ resource "azurerm_storage_account" "main" {
   tags = azurerm_resource_group.main.tags
 }
 
+# ─── Azure Speech Services (F0 free tier — 500K chars/mo) ───────────────────
+resource "azurerm_cognitive_account" "speech" {
+  name                = "speech-${var.project}-${var.environment}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  kind                = "SpeechServices"
+  sku_name            = "F0"
+
+  tags = azurerm_resource_group.main.tags
+}
+
 resource "azurerm_storage_container" "recordings" {
   name                  = "recordings"
   storage_account_name  = azurerm_storage_account.main.name
@@ -198,7 +206,6 @@ resource "azurerm_key_vault" "main" {
 locals {
   secret_names = [
     "AZURE-OPENAI-API-KEY",
-    "ELEVENLABS-API-KEY",
     "ANTHROPIC-API-KEY",
     "AZURE-SPEECH-API-KEY",
   ]

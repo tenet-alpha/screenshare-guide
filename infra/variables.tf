@@ -35,8 +35,4 @@ variable "azure_openai_endpoint" {
   default     = "https://dusan-mhyrnr7e-eastus2.cognitiveservices.azure.com"
 }
 
-variable "azure_speech_endpoint" {
-  description = "Azure Speech endpoint URL"
-  type        = string
-  default     = ""
-}
+## Azure Speech is derived from the Cognitive Services resource, no variable needed

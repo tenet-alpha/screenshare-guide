@@ -46,6 +46,10 @@ output "storage_container_name" {
   value = azurerm_storage_container.recordings.name
 }
 
+output "speech_endpoint" {
+  value = "https://${azurerm_resource_group.main.location}.tts.speech.microsoft.com"
+}
+
 output "key_vault_name" {
   value = azurerm_key_vault.main.name
 }
