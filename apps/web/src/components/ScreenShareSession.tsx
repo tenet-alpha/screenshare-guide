@@ -345,12 +345,34 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: "monitor", frameRate: { ideal: 2, max: 5 } },
+        video: {
+          displaySurface: "monitor",   // prefer full screen
+          frameRate: { ideal: 2, max: 5 },
+        },
         audio: false,
+        // @ts-expect-error — Chrome 107+ supports surfaceTypes to hide tab/window options
+        surfaceTypes: ["monitor"],       // only show "Entire Screen" in picker
+        selfBrowserSurface: "exclude",   // hide our own tab from the picker
+        monitorTypeSurfaces: "include",  // ensure screen options show
       });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-      stream.getVideoTracks()[0].addEventListener("ended", () => stopScreenShare());
+
+      // Check if user selected entire screen vs tab/window
+      const track = stream.getVideoTracks()[0];
+      const settings = track.getSettings() as any;
+      if (settings.displaySurface && settings.displaySurface !== "monitor") {
+        // They picked a tab or window — this will go black when they switch tabs
+        stream.getTracks().forEach((t) => t.stop());
+        setError(
+          "Please share your entire screen, not a tab or window. " +
+          "This is needed so we can see when you navigate to Meta Business Suite."
+        );
+        setStatus("error");
+        return;
+      }
+
+      track.addEventListener("ended", () => stopScreenShare());
       connectWebSocket();
       startFrameSampling();
       setStatus("active");
