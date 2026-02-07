@@ -149,15 +149,21 @@ const INSTAGRAM_PROOF_TEMPLATE = {
   description: "Verify Instagram audience metrics via live screen analysis",
   steps: [
     {
-      instruction: "Open your Meta Business Suite",
+      instruction: "Open Meta Business Suite",
       successCriteria:
-        "Meta Business Suite home page is visible. Extract the Instagram handle/username shown on the page.",
+        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads, etc.",
       hints: [],
     },
     {
-      instruction: "Navigate to Insights",
+      instruction: "Verify Instagram handle",
       successCriteria:
-        "The Insights page is visible showing engagement and reach metrics.",
+        "The Instagram handle/username is visible on the Meta Business Suite page. Extract it.",
+      hints: [],
+    },
+    {
+      instruction: "Open Account Insights",
+      successCriteria:
+        "The Insights page is visible showing engagement and reach metrics with charts and numbers.",
       hints: [],
     },
     {
@@ -182,16 +188,29 @@ export const sessionRouter = router({
       .where("name", "=", INSTAGRAM_PROOF_TEMPLATE.name)
       .executeTakeFirst();
 
+    const expectedSteps = JSON.stringify(INSTAGRAM_PROOF_TEMPLATE.steps);
+
     if (!template) {
       template = await ctx.db
         .insertInto("templates")
         .values({
           name: INSTAGRAM_PROOF_TEMPLATE.name,
           description: INSTAGRAM_PROOF_TEMPLATE.description,
-          steps: JSON.stringify(INSTAGRAM_PROOF_TEMPLATE.steps),
+          steps: expectedSteps,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+    } else {
+      // Update steps if the hardcoded definition has changed
+      const currentSteps = typeof template.steps === "string" ? template.steps : JSON.stringify(template.steps);
+      if (currentSteps !== expectedSteps) {
+        template = await ctx.db
+          .updateTable("templates")
+          .set({ steps: expectedSteps, updated_at: new Date() })
+          .where("id", "=", template.id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      }
     }
 
     const token = nanoid(12);

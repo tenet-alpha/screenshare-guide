@@ -83,11 +83,12 @@ function accumulateExtractedData(
 }
 
 // Extraction schemas (must match websocket.ts)
+// Step 0: Open MBS (no extraction), Step 1: Handle, Step 2: Open Insights (no extraction), Step 3: Metrics
 const STEP_EXTRACTION_SCHEMAS: Record<number, Array<{ field: string; description: string; required: boolean }>> = {
-  0: [
+  1: [
     { field: "Handle", description: "Instagram handle", required: true },
   ],
-  2: [
+  3: [
     { field: "Reach", description: "Total reach", required: true },
     { field: "Non-followers reached", description: "Non-followers reached", required: true },
     { field: "Followers reached", description: "Followers reached", required: true },
@@ -145,14 +146,18 @@ function createState(
     sessionId: "test-sess",
     templateId: "test-tmpl",
     currentStep: 0,
-    totalSteps: 3,
+    totalSteps: 4,
     steps: [
       {
         instruction: "Open Meta Business Suite",
         successCriteria: "MBS home page visible",
       },
       {
-        instruction: "Navigate to Insights",
+        instruction: "Verify Instagram handle",
+        successCriteria: "Handle visible on page",
+      },
+      {
+        instruction: "Open Account Insights",
         successCriteria: "Insights page visible",
       },
       {
@@ -237,9 +242,9 @@ describe("linkClicked handling", () => {
 });
 
 describe("hasAllRequiredFields (schema-based validation)", () => {
-  it("returns true when all step 2 (index 2) fields are present", () => {
+  it("returns true when all step 3 (metrics) fields are present", () => {
     const state = createState({
-      currentStep: 2,
+      currentStep: 3,
       allExtractedData: [
         { label: "Reach", value: "12,345" },
         { label: "Non-followers reached", value: "8,000" },
@@ -249,40 +254,45 @@ describe("hasAllRequiredFields (schema-based validation)", () => {
     expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false with no data for step 2", () => {
-    const state = createState({ currentStep: 2, allExtractedData: [] });
+  it("returns false with no data for step 3", () => {
+    const state = createState({ currentStep: 3, allExtractedData: [] });
     expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns false with partial step 2 data", () => {
+  it("returns false with partial step 3 data", () => {
     const state = createState({
-      currentStep: 2,
+      currentStep: 3,
       allExtractedData: [{ label: "Reach", value: "10,000" }],
     });
     expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns true for step 0 when Handle is present", () => {
+  it("returns true for step 1 when Handle is present", () => {
     const state = createState({
-      currentStep: 0,
+      currentStep: 1,
       allExtractedData: [{ label: "Handle", value: "@testuser" }],
     });
     expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false for step 0 when Handle is missing", () => {
-    const state = createState({ currentStep: 0, allExtractedData: [] });
+  it("returns false for step 1 when Handle is missing", () => {
+    const state = createState({ currentStep: 1, allExtractedData: [] });
     expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns true for step 1 (no schema — no extraction required)", () => {
-    const state = createState({ currentStep: 1, allExtractedData: [] });
+  it("returns true for step 0 (no schema — just page detection)", () => {
+    const state = createState({ currentStep: 0, allExtractedData: [] });
+    expect(hasAllRequiredFields(state)).toBe(true);
+  });
+
+  it("returns true for step 2 (no schema — just page detection)", () => {
+    const state = createState({ currentStep: 2, allExtractedData: [] });
     expect(hasAllRequiredFields(state)).toBe(true);
   });
 
   it("returns true with extra data items beyond schema", () => {
     const state = createState({
-      currentStep: 2,
+      currentStep: 3,
       allExtractedData: [
         { label: "Handle", value: "@testuser" },
         { label: "Reach", value: "12,345" },

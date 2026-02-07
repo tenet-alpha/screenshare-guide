@@ -15,15 +15,21 @@ const INSTAGRAM_PROOF_TEMPLATE = {
   description: "Verify Instagram audience metrics via live screen analysis",
   steps: [
     {
-      instruction: "Open your Meta Business Suite",
+      instruction: "Open Meta Business Suite",
       successCriteria:
-        "Meta Business Suite home page is visible. Extract the Instagram handle/username shown on the page.",
+        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads, etc.",
       hints: [],
     },
     {
-      instruction: "Navigate to Insights",
+      instruction: "Verify Instagram handle",
       successCriteria:
-        "The Insights page is visible showing engagement and reach metrics.",
+        "The Instagram handle/username is visible on the Meta Business Suite page. Extract it.",
+      hints: [],
+    },
+    {
+      instruction: "Open Account Insights",
+      successCriteria:
+        "The Insights page is visible showing engagement and reach metrics with charts and numbers.",
       hints: [],
     },
     {
@@ -183,7 +189,7 @@ describe("createProof endpoint", () => {
       const result = await runCreateProof(db);
 
       expect(Array.isArray(result.template.steps)).toBe(true);
-      expect(result.template.steps).toHaveLength(3);
+      expect(result.template.steps).toHaveLength(4);
       expect(result.template.steps[0]).toHaveProperty("instruction");
     });
 
@@ -199,7 +205,7 @@ describe("createProof endpoint", () => {
       const result = await runCreateProof(db);
 
       expect(Array.isArray(result.template.steps)).toBe(true);
-      expect(result.template.steps).toHaveLength(3);
+      expect(result.template.steps).toHaveLength(4);
     });
 
     it("steps are never a string in the response", async () => {
@@ -218,11 +224,11 @@ describe("createProof endpoint", () => {
   });
 
   describe("template structure", () => {
-    it("template has exactly 3 steps", async () => {
+    it("template has exactly 4 steps", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
-      expect(result.template.steps).toHaveLength(3);
+      expect(result.template.steps).toHaveLength(4);
     });
 
     it("each step has instruction and successCriteria", async () => {
@@ -246,18 +252,25 @@ describe("createProof endpoint", () => {
       expect(result.template.steps[0].instruction).toContain("Meta Business Suite");
     });
 
-    it("step 2 references Insights", async () => {
+    it("step 2 references handle verification", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
-      expect(result.template.steps[1].instruction).toContain("Insights");
+      expect(result.template.steps[1].instruction.toLowerCase()).toContain("handle");
     });
 
-    it("step 3 references audience metrics", async () => {
+    it("step 3 references Insights", async () => {
       const db = createMockDb({ existingTemplate: null });
       const result = await runCreateProof(db);
 
-      expect(result.template.steps[2].instruction.toLowerCase()).toContain("metrics");
+      expect(result.template.steps[2].instruction).toContain("Insights");
+    });
+
+    it("step 4 references audience metrics", async () => {
+      const db = createMockDb({ existingTemplate: null });
+      const result = await runCreateProof(db);
+
+      expect(result.template.steps[3].instruction.toLowerCase()).toContain("metrics");
     });
   });
 

@@ -6,20 +6,25 @@ import { logWebSocket, logAI, log } from "./lib/logger";
 
 /**
  * Steps that require a link click before analysis begins.
- * Server will skip frame analysis for these steps until linkClicked is received.
+ * Step 0: "Open Meta Business Suite" — link button shown
+ * Step 2: "Open Account Insights" — link button shown
  */
-const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 1]);
+const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 2]);
 
 /**
  * Extraction schemas per step index.
- * Defines exactly what fields the vision model should extract.
+ * Step 0: Open MBS — no extraction (just page detection)
+ * Step 1: Validate handle — extract Handle
+ * Step 2: Open Insights — no extraction (just page detection)
+ * Step 3: Gather metrics — extract Reach, Non-followers, Followers
  */
 const STEP_EXTRACTION_SCHEMAS: Record<number, ExtractionField[]> = {
-  0: [
+  // Step 0 — no extraction, just detect MBS page
+  1: [
     { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
   ],
-  // Step 1 (Insights navigation) — no extraction needed
-  2: [
+  // Step 2 — no extraction, just detect Insights page
+  3: [
     { field: "Reach", description: "Total reach number", required: true },
     { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
     { field: "Followers reached", description: "Number of followers reached", required: true },
