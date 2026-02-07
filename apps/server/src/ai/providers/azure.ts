@@ -11,6 +11,7 @@ import type {
   FrameAnalysisResult,
   QuickCheckResult,
   VoiceInfo,
+  ExtractionField,
 } from "../types";
 
 // ============================================================================
@@ -48,7 +49,8 @@ class AzureOpenAIVisionProvider implements VisionProvider {
   async analyzeFrame(
     imageBase64: string,
     currentInstruction: string,
-    successCriteria: string
+    successCriteria: string,
+    extractionSchema?: ExtractionField[]
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present and prepare data URL
     let imageUrl: string;
@@ -58,37 +60,32 @@ class AzureOpenAIVisionProvider implements VisionProvider {
       imageUrl = `data:image/jpeg;base64,${imageBase64}`;
     }
 
-    const systemPrompt = `You are an AI assistant helping a user complete a task by analyzing their screen.
-Your job is to:
-1. Describe what you see on screen
-2. Identify UI elements relevant to the current instruction
-3. Determine if the success criteria has been met
-4. Extract any specific data mentioned in the success criteria (handles, numbers, metrics, etc.)
-5. If the user seems stuck, provide helpful guidance
-
-Be concise and helpful. Focus on actionable observations.
-CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.`;
-
-    const userPrompt = `Current instruction for the user: "${currentInstruction}"
-
-Success criteria (what indicates this step is complete): "${successCriteria}"
-
-Please analyze this screenshot and provide:
-1. A brief description of what's visible on screen
-2. Key UI elements you can identify
-3. Whether the success criteria appears to be met (true/false)
-4. Your confidence level (0.0 to 1.0)
-5. If the criteria is NOT met, a suggested action for the user
-6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs
-
-Respond in JSON format only:
+    // Build extraction schema instructions for the prompt
+    let schemaInstruction = "";
+    let schemaFields = "";
+    if (extractionSchema?.length) {
+      const fieldList = extractionSchema
+        .map((f) => `  "${f.field}": "${f.description}"`)
+        .join(",\n");
+      schemaInstruction = `\nYou MUST extract data into the exact field names defined below. Do not invent new field names.`;
+      schemaFields = `\n\nEXTRACTION SCHEMA (use these exact field names in extractedData):
 {
-  "description": "string",
-  "detectedElements": ["string"],
+${fieldList}
+}`;
+    }
+
+    const systemPrompt = `You are an AI assistant analyzing a user's screen to verify they've completed a step.
+Keep responses concise. Focus on whether the success criteria is met and what action to take next.${schemaInstruction}`;
+
+    const userPrompt = `Instruction: "${currentInstruction}"
+Success criteria: "${successCriteria}"${schemaFields}
+
+Analyze this screenshot. Respond in JSON only:
+{
   "matchesSuccessCriteria": boolean,
-  "confidence": number,
-  "suggestedAction": "string or null",
-  "extractedData": [{"label": "string", "value": "string"}]
+  "confidence": number (0.0-1.0),
+  "suggestedAction": "string or null (only if criteria NOT met — say what to do, not what you see)",
+  "extractedData": [{"label": "<exact field name from schema>", "value": "string"}]
 }`;
 
     try {
@@ -158,10 +155,8 @@ Respond in JSON format only:
 
       // Validate and sanitize result
       return {
-        description: result.description || "Unable to describe screen",
-        detectedElements: Array.isArray(result.detectedElements)
-          ? result.detectedElements
-          : [],
+        description: "",
+        detectedElements: [],
         matchesSuccessCriteria: Boolean(result.matchesSuccessCriteria),
         confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
         suggestedAction: result.suggestedAction || undefined,

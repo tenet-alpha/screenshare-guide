@@ -11,6 +11,7 @@ import type {
   FrameAnalysisResult,
   QuickCheckResult,
   VoiceInfo,
+  ExtractionField,
 } from "../types";
 
 // ============================================================================
@@ -31,7 +32,8 @@ class AnthropicVisionProvider implements VisionProvider {
   async analyzeFrame(
     imageBase64: string,
     currentInstruction: string,
-    successCriteria: string
+    successCriteria: string,
+    extractionSchema?: ExtractionField[]
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");

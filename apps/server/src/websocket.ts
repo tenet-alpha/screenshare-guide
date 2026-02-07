@@ -1,7 +1,24 @@
 import { Elysia, t } from "elysia";
 import { analyzeFrame, generateSpeech } from "./ai";
+import type { ExtractionField } from "./ai";
 import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
+
+/**
+ * Extraction schemas per step index.
+ * Defines exactly what fields the vision model should extract.
+ */
+const STEP_EXTRACTION_SCHEMAS: Record<number, ExtractionField[]> = {
+  0: [
+    { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
+  ],
+  // Step 1 (Insights navigation) — no extraction needed
+  2: [
+    { field: "Reach", description: "Total reach number", required: true },
+    { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
+    { field: "Followers reached", description: "Number of followers reached", required: true },
+  ],
+};
 
 // Session state machine
 interface SessionState {
@@ -239,48 +256,9 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
 }
 
 /**
- * Canonical label mapping — maps all vision model label variations to a fixed set.
- * Returns the canonical label, or null if the label doesn't match any known field.
- */
-const CANONICAL_LABELS: Array<{ canonical: string; patterns: RegExp[] }> = [
-  {
-    canonical: "Handle",
-    patterns: [/handle/, /username/, /account.*name/, /instagram.*@/],
-  },
-  {
-    canonical: "Reach",
-    patterns: [/^reach$/, /^total.*reach$/, /^accounts.*reach/],
-  },
-  {
-    canonical: "Non-followers reached",
-    patterns: [/non.?follower/, /from.*non/, /non.*from/],
-  },
-  {
-    canonical: "Followers reached",
-    // Must NOT match non-follower patterns — order matters, check non-followers first
-    patterns: [/^follower/, /^from.*follower/, /^reach.*follower/, /follower.*reach/, /follower.*count/],
-  },
-];
-
-function canonicalizeLabel(rawLabel: string): string {
-  const lower = rawLabel.toLowerCase().replace(/[^a-z0-9@]/g, " ").trim().replace(/\s+/g, " ");
-
-  // Check non-followers BEFORE followers (more specific first)
-  for (const { canonical, patterns } of CANONICAL_LABELS) {
-    for (const pattern of patterns) {
-      if (pattern.test(lower)) {
-        return canonical;
-      }
-    }
-  }
-
-  // Unknown label — return cleaned-up original
-  return rawLabel.trim();
-}
-
-/**
- * Accumulate extracted data (dedup by canonical label, keep latest value)
- * Also persists incrementally to DB (fire-and-forget)
+ * Accumulate extracted data (dedup by exact label, keep latest value).
+ * Vision model is instructed to use exact field names from the extraction schema.
+ * Also persists incrementally to DB (fire-and-forget).
  */
 function accumulateExtractedData(
   state: SessionState,
@@ -289,12 +267,11 @@ function accumulateExtractedData(
   if (!items?.length) return;
   for (const item of items) {
     if (!item.label || !item.value) continue;
-    const canonical = canonicalizeLabel(item.label);
-    const idx = state.allExtractedData.findIndex((d) => d.label === canonical);
+    const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
     if (idx >= 0) {
-      state.allExtractedData[idx] = { label: canonical, value: item.value };
+      state.allExtractedData[idx] = item;
     } else {
-      state.allExtractedData.push({ label: canonical, value: item.value });
+      state.allExtractedData.push(item);
     }
   }
 
@@ -314,13 +291,16 @@ function accumulateExtractedData(
 /**
  * For Step 3 (index 2): check if all required metrics are present
  */
-function hasAllStep3Metrics(state: SessionState): boolean {
+/**
+ * Check if all required fields from the current step's extraction schema are present.
+ */
+function hasAllRequiredFields(state: SessionState): boolean {
+  const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
+  if (!schema) return true; // no schema = no extraction required
   const labels = state.allExtractedData.map((d) => d.label);
-  return (
-    labels.includes("Reach") &&
-    labels.includes("Non-followers reached") &&
-    labels.includes("Followers reached")
-  );
+  return schema
+    .filter((f) => f.required)
+    .every((f) => labels.includes(f.field));
 }
 
 /**
@@ -357,11 +337,13 @@ async function handleFrame(
 
   const startTime = Date.now();
   try {
-    // Analyze the frame with AI provider
+    // Analyze the frame with AI provider, passing extraction schema if defined
+    const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
     const analysis = await analyzeFrame(
       imageData,
       currentStepData.instruction,
-      currentStepData.successCriteria
+      currentStepData.successCriteria,
+      schema
     );
 
     logAI("vision", "analyzeFrame", Date.now() - startTime);
@@ -382,10 +364,11 @@ async function handleFrame(
     );
 
     if (analysis.matchesSuccessCriteria && analysis.confidence > 0.7) {
-      // For step 3 (index 2), require all three metrics before advancing
-      if (state.currentStep === 2 && !hasAllStep3Metrics(state)) {
-        log.info("Step 3: not all metrics found yet", {
+      // Check if all required fields from the extraction schema are present
+      if (!hasAllRequiredFields(state)) {
+        log.info("Not all required fields found yet", {
           sessionId: state.sessionId,
+          step: state.currentStep,
           extractedData: state.allExtractedData,
         });
         state.status = "waiting";

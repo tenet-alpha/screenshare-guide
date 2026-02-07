@@ -61,13 +61,25 @@ function accumulateExtractedData(
   }
 }
 
-function hasAllStep3Metrics(state: SessionState): boolean {
+// Extraction schemas (must match websocket.ts)
+const STEP_EXTRACTION_SCHEMAS: Record<number, Array<{ field: string; description: string; required: boolean }>> = {
+  0: [
+    { field: "Handle", description: "Instagram handle", required: true },
+  ],
+  2: [
+    { field: "Reach", description: "Total reach", required: true },
+    { field: "Non-followers reached", description: "Non-followers reached", required: true },
+    { field: "Followers reached", description: "Followers reached", required: true },
+  ],
+};
+
+function hasAllRequiredFields(state: SessionState): boolean {
+  const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
+  if (!schema) return true;
   const labels = state.allExtractedData.map((d) => d.label);
-  return (
-    labels.includes("Reach") &&
-    labels.includes("Non-followers reached") &&
-    labels.includes("Followers reached")
-  );
+  return schema
+    .filter((f) => f.required)
+    .every((f) => labels.includes(f.field));
 }
 
 function shouldAnalyzeFrame(state: SessionState, now: number): boolean {
@@ -202,53 +214,53 @@ describe("linkClicked handling", () => {
   });
 });
 
-describe("hasAllStep3Metrics (uses canonical labels from accumulateExtractedData)", () => {
-  it("returns true when all three canonical metrics are present", () => {
+describe("hasAllRequiredFields (schema-based validation)", () => {
+  it("returns true when all step 2 (index 2) fields are present", () => {
     const state = createState({
+      currentStep: 2,
       allExtractedData: [
         { label: "Reach", value: "12,345" },
         { label: "Non-followers reached", value: "8,000" },
         { label: "Followers reached", value: "4,345" },
       ],
     });
-
-    expect(hasAllStep3Metrics(state)).toBe(true);
+    expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false with no metrics", () => {
-    const state = createState({ allExtractedData: [] });
-    expect(hasAllStep3Metrics(state)).toBe(false);
+  it("returns false with no data for step 2", () => {
+    const state = createState({ currentStep: 2, allExtractedData: [] });
+    expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns false with only Reach", () => {
+  it("returns false with partial step 2 data", () => {
     const state = createState({
+      currentStep: 2,
       allExtractedData: [{ label: "Reach", value: "10,000" }],
     });
-    expect(hasAllStep3Metrics(state)).toBe(false);
+    expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns false with only Reach and Non-followers reached", () => {
+  it("returns true for step 0 when Handle is present", () => {
     const state = createState({
-      allExtractedData: [
-        { label: "Reach", value: "10,000" },
-        { label: "Non-followers reached", value: "6,000" },
-      ],
+      currentStep: 0,
+      allExtractedData: [{ label: "Handle", value: "@testuser" }],
     });
-    expect(hasAllStep3Metrics(state)).toBe(false);
+    expect(hasAllRequiredFields(state)).toBe(true);
   });
 
-  it("returns false missing Followers reached", () => {
-    const state = createState({
-      allExtractedData: [
-        { label: "Reach", value: "12,345" },
-        { label: "Non-followers reached", value: "8,000" },
-      ],
-    });
-    expect(hasAllStep3Metrics(state)).toBe(false);
+  it("returns false for step 0 when Handle is missing", () => {
+    const state = createState({ currentStep: 0, allExtractedData: [] });
+    expect(hasAllRequiredFields(state)).toBe(false);
   });
 
-  it("returns true with extra data items", () => {
+  it("returns true for step 1 (no schema — no extraction required)", () => {
+    const state = createState({ currentStep: 1, allExtractedData: [] });
+    expect(hasAllRequiredFields(state)).toBe(true);
+  });
+
+  it("returns true with extra data items beyond schema", () => {
     const state = createState({
+      currentStep: 2,
       allExtractedData: [
         { label: "Handle", value: "@testuser" },
         { label: "Reach", value: "12,345" },
@@ -256,7 +268,7 @@ describe("hasAllStep3Metrics (uses canonical labels from accumulateExtractedData
         { label: "Followers reached", value: "4,345" },
       ],
     });
-    expect(hasAllStep3Metrics(state)).toBe(true);
+    expect(hasAllRequiredFields(state)).toBe(true);
   });
 });
 

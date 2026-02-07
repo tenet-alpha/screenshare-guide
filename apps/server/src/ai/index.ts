@@ -9,7 +9,7 @@ import type { VisionProvider, TTSProvider, VisionProviderType, TTSProviderType }
 import { createAnthropicVisionProvider, createElevenLabsTTSProvider } from "./providers/anthropic";
 import { createAzureVisionProvider, createAzureTTSProvider } from "./providers/azure";
 
-export type { FrameAnalysisResult, QuickCheckResult, VoiceInfo, ExtractedDataItem } from "./types";
+export type { FrameAnalysisResult, QuickCheckResult, VoiceInfo, ExtractedDataItem, ExtractionField } from "./types";
 
 let _visionProvider: VisionProvider | null = null;
 let _ttsProvider: TTSProvider | null = null;
@@ -43,8 +43,8 @@ export function resetProviders(): void {
   _ttsProvider = null;
 }
 
-export async function analyzeFrame(imageBase64: string, currentInstruction: string, successCriteria: string) {
-  return getVisionProvider().analyzeFrame(imageBase64, currentInstruction, successCriteria);
+export async function analyzeFrame(imageBase64: string, currentInstruction: string, successCriteria: string, extractionSchema?: import("./types").ExtractionField[]) {
+  return getVisionProvider().analyzeFrame(imageBase64, currentInstruction, successCriteria, extractionSchema);
 }
 
 export async function quickElementCheck(imageBase64: string, elementDescription: string) {
