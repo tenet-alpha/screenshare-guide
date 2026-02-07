@@ -23,7 +23,7 @@ interface SessionState {
 const activeSessions = new Map<string, SessionState>();
 
 // Minimum time between frame analyses (debouncing)
-const ANALYSIS_DEBOUNCE_MS = 800;
+const ANALYSIS_DEBOUNCE_MS = 400;
 
 // Consecutive successful analyses needed to advance
 const SUCCESS_THRESHOLD = 1;
@@ -31,7 +31,7 @@ const SUCCESS_THRESHOLD = 1;
 // Rate limiting for WebSocket messages
 const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
 const WS_RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const WS_RATE_LIMIT_MAX = 30; // 30 messages per window (increased for 1fps)
+const WS_RATE_LIMIT_MAX = 50; // 50 messages per 10s window (2fps + pings + events)
 
 function checkWsRateLimit(token: string): boolean {
   const now = Date.now();
@@ -239,7 +239,15 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
 }
 
 /**
- * Accumulate extracted data (dedup by label, keep latest)
+ * Normalize a label for dedup comparison.
+ * "Instagram Handle", "handle", "Handle:" → "handle"
+ */
+function normalizeLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]/g, " ").trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Accumulate extracted data (dedup by normalized label, keep latest)
  * Also persists incrementally to DB (fire-and-forget)
  */
 function accumulateExtractedData(
@@ -249,9 +257,10 @@ function accumulateExtractedData(
   if (!items?.length) return;
   for (const item of items) {
     if (!item.label || !item.value) continue;
-    const idx = state.allExtractedData.findIndex((d) => d.label === item.label);
+    const normalizedNew = normalizeLabel(item.label);
+    const idx = state.allExtractedData.findIndex((d) => normalizeLabel(d.label) === normalizedNew);
     if (idx >= 0) {
-      state.allExtractedData[idx] = item;
+      state.allExtractedData[idx] = item; // update with latest label + value
     } else {
       state.allExtractedData.push(item);
     }

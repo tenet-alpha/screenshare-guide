@@ -197,13 +197,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       : instruction || steps[safeStep]?.instruction || "Loading...";
 
     pipDoc.body.innerHTML = `
-      <div style="padding:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-        <div style="display:flex;align-items:center;gap:4px;margin-bottom:10px;">${stepsHtml}</div>
-        <div style="color:#fff;font-size:14px;font-weight:600;line-height:1.4;margin-bottom:4px;">
+      <div style="padding:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;flex-shrink:0;">${stepsHtml}</div>
+        ${linkBtnHtml ? `<div style="flex-shrink:0;margin-bottom:8px;">${linkBtnHtml.replace('margin-top:8px;', '')}</div>` : ""}
+        <div style="color:#fff;font-size:13px;font-weight:600;line-height:1.3;flex-shrink:0;margin-bottom:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">
           ${instructionText}
         </div>
-        ${linkBtnHtml}
-        ${dataHtml ? `<div style="border-top:1px solid #374151;padding-top:6px;margin-top:6px;">${dataHtml}</div>` : ""}
+        ${dataHtml ? `<div style="border-top:1px solid #374151;padding-top:4px;margin-top:4px;flex-shrink:0;overflow:hidden;">${dataHtml}</div>` : ""}
         ${analyzingHtml}
         ${countdownHtml}
       </div>
@@ -258,14 +258,20 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     wsRef.current = ws;
   }, [token, status]);
 
-  // Accumulate extracted data (dedup by label, always keep latest)
+  // Normalize label for dedup: "Instagram Handle" and "handle" → same key
+  function normalizeLabel(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]/g, " ").trim().replace(/\s+/g, " ");
+  }
+
+  // Accumulate extracted data (dedup by normalized label, always keep latest)
   function accumulateData(items: ExtractedDataItem[]) {
     if (!items?.length) return;
     setCollectedData((prev) => {
       const updated = [...prev];
       for (const item of items) {
         if (!item.label || !item.value) continue;
-        const idx = updated.findIndex((d) => d.label === item.label);
+        const normalizedNew = normalizeLabel(item.label);
+        const idx = updated.findIndex((d) => normalizeLabel(d.label) === normalizedNew);
         if (idx >= 0) updated[idx] = item;
         else updated.push(item);
       }
@@ -426,10 +432,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     const hashCtx = hashCanvas.getContext("2d")!;
 
     frameIntervalRef.current = setInterval(() => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) {
-        console.log("[Frame] Skip: ws=%s, readyState=%d", wsRef.current?.readyState, video.readyState);
-        return;
-      }
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
 
       // Improvement #3: Pause frame analysis until link is clicked for steps with links
       // Use refs to avoid stale closure values inside setInterval
@@ -438,33 +441,16 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         return; // Don't send frames until the user clicks the link
       }
 
-      // Debug: log video dimensions and track state
-      const tracks = video.srcObject instanceof MediaStream ? video.srcObject.getVideoTracks() : [];
-      const trackState = tracks[0] ? { enabled: tracks[0].enabled, readyState: tracks[0].readyState, muted: tracks[0].muted } : "no track";
-      console.log("[Frame] video: %dx%d, readyState=%d, paused=%s, track=%o",
-        video.videoWidth, video.videoHeight, video.readyState, video.paused, trackState);
-
-      // Improvement #1: Frame hash dedup
+      // Frame hash dedup — hash center 50% of frame to ignore PiP overlay in corners
       hashCtx.drawImage(video, 0, 0, 16, 16);
-      const pixelData = hashCtx.getImageData(0, 0, 16, 16).data;
-      const hash = djb2Hash(pixelData, 8); // sample every 8th byte
+      const pixelData = hashCtx.getImageData(4, 4, 8, 8).data; // center 8×8 region
+      const hash = djb2Hash(pixelData, 4);
       const now = Date.now();
       const timeSinceLastSend = now - lastFrameSendTimeRef.current;
 
       if (hash === lastFrameHashRef.current && timeSinceLastSend < FRAME_STALENESS_MS) {
         return; // Skip — unchanged screen within staleness window
       }
-
-      // Debug: check if frame is all black
-      let nonZeroPixels = 0;
-      for (let i = 0; i < pixelData.length; i += 4) {
-        if (pixelData[i] > 0 || pixelData[i + 1] > 0 || pixelData[i + 2] > 0) {
-          nonZeroPixels++;
-          break; // Found at least one non-black pixel
-        }
-      }
-      console.log("[Frame] hash=%d, prevHash=%d, allBlack=%s, sending frame",
-        hash, lastFrameHashRef.current, nonZeroPixels === 0);
 
       // Update hash and send time
       lastFrameHashRef.current = hash;
@@ -473,20 +459,8 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       canvas.width = Math.min(video.videoWidth, 1024);
       canvas.height = Math.min(video.videoHeight, (canvas.width / video.videoWidth) * video.videoHeight);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      // Debug: check actual capture canvas too
-      const capturePixels = ctx.getImageData(0, 0, Math.min(canvas.width, 10), 1).data;
-      let captureNonZero = false;
-      for (let i = 0; i < capturePixels.length; i += 4) {
-        if (capturePixels[i] > 0 || capturePixels[i + 1] > 0 || capturePixels[i + 2] > 0) {
-          captureNonZero = true;
-          break;
-        }
-      }
-      console.log("[Frame] Capture canvas: %dx%d, hasContent=%s", canvas.width, canvas.height, captureNonZero);
-
       wsRef.current.send(JSON.stringify({ type: "frame", imageData: canvas.toDataURL("image/jpeg", 0.6) }));
-    }, 1000);
+    }, 500);
   };
 
   useEffect(() => { return () => { stopScreenShare(); }; }, []);
@@ -544,12 +518,8 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Video preview for debugging — shows what's being captured */}
-      <video ref={videoRef} autoPlay playsInline muted style={{
-        position: "fixed", bottom: 8, right: 8, width: 200, height: 120,
-        border: "2px solid #f59e0b", borderRadius: 8, zIndex: 9999,
-        objectFit: "cover", background: "#000",
-      }} />
+      {/* Off-screen video + canvas for frame capture — must be rendered (not display:none) for frame decoding */}
+      <video ref={videoRef} autoPlay playsInline muted style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0 }} />
       <canvas ref={canvasRef} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
 
       {/* Improvement #6: Sticky instruction bar for non-PiP browsers */}

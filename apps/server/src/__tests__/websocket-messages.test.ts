@@ -33,9 +33,9 @@ interface SessionState {
 }
 
 // Constants (must match websocket.ts)
-const ANALYSIS_DEBOUNCE_MS = 800;
+const ANALYSIS_DEBOUNCE_MS = 400;
 const WS_RATE_LIMIT_WINDOW = 10000;
-const WS_RATE_LIMIT_MAX = 30;
+const WS_RATE_LIMIT_MAX = 50;
 
 // ── Functions extracted from websocket.ts ───────────────────────────
 
@@ -440,23 +440,23 @@ describe("frame debouncing", () => {
     expect(shouldAnalyzeFrame(state, Date.now())).toBe(true);
   });
 
-  it("blocks frame within 800ms of last analysis", () => {
+  it("blocks frame within 400ms of last analysis", () => {
     const now = Date.now();
-    const state = createState({ lastAnalysisTime: now - 400 });
+    const state = createState({ lastAnalysisTime: now - 200 });
 
     expect(shouldAnalyzeFrame(state, now)).toBe(false);
   });
 
-  it("blocks frame at exactly 800ms boundary", () => {
+  it("blocks frame at exactly 400ms boundary", () => {
     const now = Date.now();
-    const state = createState({ lastAnalysisTime: now - 799 });
+    const state = createState({ lastAnalysisTime: now - 399 });
 
     expect(shouldAnalyzeFrame(state, now)).toBe(false);
   });
 
-  it("allows frame after 800ms debounce", () => {
+  it("allows frame after 400ms debounce", () => {
     const now = Date.now();
-    const state = createState({ lastAnalysisTime: now - 801 });
+    const state = createState({ lastAnalysisTime: now - 401 });
 
     expect(shouldAnalyzeFrame(state, now)).toBe(true);
   });
@@ -485,12 +485,12 @@ describe("frame debouncing", () => {
     state.lastAnalysisTime = t0;
 
     // Rapid subsequent frames — all blocked
-    for (let offset = 100; offset < 800; offset += 100) {
+    for (let offset = 50; offset < 400; offset += 50) {
       expect(shouldAnalyzeFrame(state, t0 + offset)).toBe(false);
     }
 
     // After debounce window — passes
-    expect(shouldAnalyzeFrame(state, t0 + 801)).toBe(true);
+    expect(shouldAnalyzeFrame(state, t0 + 401)).toBe(true);
   });
 });
 
@@ -503,16 +503,16 @@ describe("rate limiting", () => {
     expect(checkWsRateLimit("tok-1", 1000)).toBe(true);
   });
 
-  it("allows up to 30 messages in a window", () => {
+  it("allows up to 50 messages in a window", () => {
     const now = 1000;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       expect(checkWsRateLimit("tok-rate", now)).toBe(true);
     }
   });
 
-  it("blocks message 31", () => {
+  it("blocks message 51", () => {
     const now = 1000;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       checkWsRateLimit("tok-block", now);
     }
     expect(checkWsRateLimit("tok-block", now)).toBe(false);
@@ -521,7 +521,7 @@ describe("rate limiting", () => {
   it("resets after window expires", () => {
     const t0 = 1000;
     // Fill the window
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       checkWsRateLimit("tok-reset", t0);
     }
     expect(checkWsRateLimit("tok-reset", t0)).toBe(false);
@@ -535,7 +535,7 @@ describe("rate limiting", () => {
   it("rate limits are per-token", () => {
     const now = 1000;
     // Fill token A
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       checkWsRateLimit("tok-a", now);
     }
     expect(checkWsRateLimit("tok-a", now)).toBe(false);
