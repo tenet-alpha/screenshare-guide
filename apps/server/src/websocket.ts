@@ -45,6 +45,10 @@ interface SessionState {
   extractionVotes: Record<string, Record<string, number>>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
+  /** Timestamp when the last link was clicked — used for quiet period */
+  linkClickedTime: number;
+  /** Last suggestedAction from vision — used for stability gate (must match twice before speaking) */
+  pendingSuggestedAction: string | null;
 }
 
 // In-memory session states (production would use Redis)
@@ -156,6 +160,8 @@ export const websocketHandler = new Elysia()
           extractionVotes: {},
           lastSpokenAction: null,
           lastInstructionTime: 0,
+          linkClickedTime: 0,
+          pendingSuggestedAction: null,
         };
 
         activeSessions.set(token, state);
@@ -263,8 +269,10 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
     step,
   });
   state.linkClicked[step] = true;
-  // Reset lastSpokenAction so the first analysis after clicking gets a fresh instruction
+  state.linkClickedTime = Date.now();
+  // Reset TTS state — fresh start after navigation
   state.lastSpokenAction = null;
+  state.pendingSuggestedAction = null;
 }
 
 /**
@@ -493,18 +501,40 @@ async function handleFrame(
     } else {
       state.consecutiveSuccesses = 0;
 
-      // Provide actionable guidance — just say what to do, not what we see
+      // TTS strategy: don't narrate every frame change.
+      // Only speak when the user appears stuck (same suggestedAction seen twice + 15s timeout).
+      // Stay silent during page loads (quiet period after link click).
       if (analysis.suggestedAction) {
         const now = Date.now();
-        const isDifferentAction = state.lastSpokenAction === null || analysis.suggestedAction !== state.lastSpokenAction;
-        const isStuckTimeout = (now - state.lastInstructionTime) >= 15000;
-        
-        if (isDifferentAction || isStuckTimeout) {
-          state.lastSpokenAction = analysis.suggestedAction;
-          state.lastInstructionTime = now;
-          await sendInstruction(ws, analysis.suggestedAction, state);
+        const quietPeriodMs = 4000; // 4s silence after link click (page loading)
+        const stuckTimeoutMs = 15000; // 15s before repeating guidance
+
+        // Suppress TTS during page load quiet period
+        if (now - state.linkClickedTime < quietPeriodMs) {
+          // Page is likely still loading — stay silent, just track the action
+          state.pendingSuggestedAction = analysis.suggestedAction;
+        } else {
+          // Stability gate: only speak if this action matches the previous pending action
+          // (two consecutive analyses agree = screen has stabilized)
+          const isStable = analysis.suggestedAction === state.pendingSuggestedAction;
+          const isStuckTimeout = (now - state.lastInstructionTime) >= stuckTimeoutMs;
+          const isNewAction = analysis.suggestedAction !== state.lastSpokenAction;
+
+          if (isStable && isNewAction) {
+            // Screen stabilized with a new action — speak it
+            state.lastSpokenAction = analysis.suggestedAction;
+            state.lastInstructionTime = now;
+            state.pendingSuggestedAction = null;
+            await sendInstruction(ws, analysis.suggestedAction, state);
+          } else if (isStuckTimeout && state.lastSpokenAction) {
+            // User stuck for 15s — repeat the last guidance
+            state.lastInstructionTime = now;
+            await sendInstruction(ws, state.lastSpokenAction, state);
+          } else {
+            // Track this action for stability comparison on next frame
+            state.pendingSuggestedAction = analysis.suggestedAction;
+          }
         }
-        // If skipping TTS, analysis event was already sent above — UI still updates
       }
     }
 

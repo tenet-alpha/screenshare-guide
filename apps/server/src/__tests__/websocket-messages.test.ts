@@ -112,12 +112,36 @@ function shouldAnalyzeFrame(state: SessionState, now: number): boolean {
 
 /**
  * Determines if a new TTS instruction should be sent for a suggestedAction.
- * Deduplicates: only speaks if action changed or 15s stuck timeout elapsed.
+ * New strategy: stability gate + quiet period.
+ * - During quiet period (4s after link click): always silent
+ * - Otherwise: only speak if this action matches pendingSuggestedAction (stability)
+ *   AND differs from lastSpokenAction, OR if stuck for 15s+
  */
-function shouldSendInstruction(state: SessionState, suggestedAction: string, now: number): boolean {
-  const isDifferentAction = state.lastSpokenAction === null || suggestedAction !== state.lastSpokenAction;
-  const isStuckTimeout = (now - state.lastInstructionTime) >= 15000;
-  return isDifferentAction || isStuckTimeout;
+function shouldSendInstruction(
+  state: SessionState,
+  suggestedAction: string,
+  now: number
+): { speak: boolean; reason: string } {
+  const quietPeriodMs = 4000;
+  const stuckTimeoutMs = 15000;
+
+  // Quiet period after link click
+  if (now - state.linkClickedTime < quietPeriodMs) {
+    return { speak: false, reason: "quiet-period" };
+  }
+
+  // Stability gate: action must match pending (seen twice consecutively)
+  const isStable = suggestedAction === state.pendingSuggestedAction;
+  const isNewAction = suggestedAction !== state.lastSpokenAction;
+  const isStuckTimeout = (now - state.lastInstructionTime) >= stuckTimeoutMs;
+
+  if (isStable && isNewAction) {
+    return { speak: true, reason: "stable-new-action" };
+  }
+  if (isStuckTimeout && state.lastSpokenAction) {
+    return { speak: true, reason: "stuck-timeout" };
+  }
+  return { speak: false, reason: "not-stable" };
 }
 
 // Rate limiter
@@ -165,6 +189,8 @@ function createState(
     extractionVotes: {},
     lastSpokenAction: null,
     lastInstructionTime: 0,
+    linkClickedTime: 0,
+    pendingSuggestedAction: null,
     ...overrides,
   };
 }
@@ -458,64 +484,117 @@ describe("rate limiting", () => {
   });
 });
 
-describe("instruction deduplication", () => {
-  it("sends instruction when lastSpokenAction is null (first instruction)", () => {
-    const state = createState({ lastSpokenAction: null, lastInstructionTime: 0 });
-    expect(shouldSendInstruction(state, "Click the button", Date.now())).toBe(true);
-  });
-
-  it("sends instruction when suggestedAction is different from last", () => {
+describe("TTS strategy: quiet period + stability gate", () => {
+  it("suppresses TTS during 4s quiet period after link click", () => {
     const now = Date.now();
     const state = createState({
-      lastSpokenAction: "Click the button",
-      lastInstructionTime: now - 1000, // 1 second ago
+      linkClickedTime: now - 2000, // 2s ago — within quiet period
+      lastSpokenAction: null,
+      pendingSuggestedAction: null,
     });
-    expect(shouldSendInstruction(state, "Scroll down to see more", now)).toBe(true);
+    const result = shouldSendInstruction(state, "Click the button", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("quiet-period");
   });
 
-  it("blocks instruction when suggestedAction is the same and within 15s", () => {
+  it("allows TTS after quiet period expires", () => {
     const now = Date.now();
     const state = createState({
-      lastSpokenAction: "Click the button",
-      lastInstructionTime: now - 5000, // 5 seconds ago
+      linkClickedTime: now - 5000, // 5s ago — past quiet period
+      lastSpokenAction: null,
+      pendingSuggestedAction: "Click the button", // matches = stable
     });
-    expect(shouldSendInstruction(state, "Click the button", now)).toBe(false);
+    const result = shouldSendInstruction(state, "Click the button", now);
+    expect(result.speak).toBe(true);
+    expect(result.reason).toBe("stable-new-action");
   });
 
-  it("re-sends instruction after 15 seconds even if same action (stuck timeout)", () => {
+  it("blocks TTS when action not yet stable (first occurrence)", () => {
     const now = Date.now();
     const state = createState({
-      lastSpokenAction: "Click the button",
-      lastInstructionTime: now - 15000, // exactly 15 seconds ago
+      linkClickedTime: 0,
+      lastSpokenAction: null,
+      pendingSuggestedAction: null, // no previous pending — not stable
     });
-    expect(shouldSendInstruction(state, "Click the button", now)).toBe(true);
+    const result = shouldSendInstruction(state, "Click the button", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("not-stable");
   });
 
-  it("re-sends instruction well after 15 seconds", () => {
+  it("speaks when action seen twice consecutively (stability gate passes)", () => {
     const now = Date.now();
     const state = createState({
-      lastSpokenAction: "Click the button",
-      lastInstructionTime: now - 30000, // 30 seconds ago
+      linkClickedTime: 0,
+      lastSpokenAction: null,
+      pendingSuggestedAction: "Scroll down", // matches incoming = stable
     });
-    expect(shouldSendInstruction(state, "Click the button", now)).toBe(true);
+    const result = shouldSendInstruction(state, "Scroll down", now);
+    expect(result.speak).toBe(true);
+    expect(result.reason).toBe("stable-new-action");
   });
 
-  it("blocks repeated identical action at 14 seconds", () => {
+  it("blocks stable action that was already spoken", () => {
     const now = Date.now();
     const state = createState({
-      lastSpokenAction: "Click the button",
-      lastInstructionTime: now - 14000,
+      linkClickedTime: 0,
+      lastSpokenAction: "Scroll down",
+      lastInstructionTime: now - 5000, // 5s ago
+      pendingSuggestedAction: "Scroll down",
     });
-    expect(shouldSendInstruction(state, "Click the button", now)).toBe(false);
+    const result = shouldSendInstruction(state, "Scroll down", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("not-stable"); // not new, not stuck yet
   });
 
-  it("sends instruction after step advancement resets lastSpokenAction", () => {
+  it("re-speaks after 15s stuck timeout even if same action", () => {
+    const now = Date.now();
     const state = createState({
+      linkClickedTime: 0,
       lastSpokenAction: "Click the button",
-      lastInstructionTime: Date.now(),
+      lastInstructionTime: now - 16000, // 16s ago — past stuck timeout
+      pendingSuggestedAction: "Click the button",
     });
-    // Simulate step advancement
-    state.lastSpokenAction = null;
-    expect(shouldSendInstruction(state, "Navigate to insights", Date.now())).toBe(true);
+    const result = shouldSendInstruction(state, "Click the button", now);
+    expect(result.speak).toBe(true);
+    expect(result.reason).toBe("stuck-timeout");
+  });
+
+  it("does not stuck-timeout if no previous spoken action", () => {
+    const now = Date.now();
+    const state = createState({
+      linkClickedTime: 0,
+      lastSpokenAction: null,
+      lastInstructionTime: 0,
+      pendingSuggestedAction: null,
+    });
+    const result = shouldSendInstruction(state, "Something new", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("not-stable");
+  });
+
+  it("quiet period blocks even a stable repeated action", () => {
+    const now = Date.now();
+    const state = createState({
+      linkClickedTime: now - 1000, // 1s ago — within quiet period
+      lastSpokenAction: null,
+      pendingSuggestedAction: "Click the button", // would be stable
+    });
+    const result = shouldSendInstruction(state, "Click the button", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("quiet-period");
+  });
+
+  it("different action after quiet period needs two occurrences to stabilize", () => {
+    const now = Date.now();
+    const state = createState({
+      linkClickedTime: now - 5000, // past quiet period
+      lastSpokenAction: "Old action",
+      lastInstructionTime: now - 5000,
+      pendingSuggestedAction: "Old action", // pending doesn't match new action
+    });
+    // First time seeing "New action" — not stable yet
+    const result = shouldSendInstruction(state, "New action", now);
+    expect(result.speak).toBe(false);
+    expect(result.reason).toBe("not-stable");
   });
 });
