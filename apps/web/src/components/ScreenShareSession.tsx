@@ -85,6 +85,10 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const lastFrameHashRef = useRef<number>(0);
   const lastFrameSendTimeRef = useRef<number>(0);
 
+  // Refs that mirror state for use inside setInterval closures
+  const currentStepRef = useRef(currentStep);
+  const linkClickedStepsRef = useRef(linkClickedSteps);
+
   // Defensive: ensure steps is always a valid array
   const steps: TemplateStep[] = (() => {
     try {
@@ -100,6 +104,10 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   useEffect(() => {
     setPipSupported("documentPictureInPicture" in window);
   }, []);
+
+  // Keep refs in sync with state (for setInterval closures)
+  useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
+  useEffect(() => { linkClickedStepsRef.current = linkClickedSteps; }, [linkClickedSteps]);
 
   // Keep PiP in sync
   useEffect(() => {
@@ -387,10 +395,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
 
       // Improvement #3: Pause frame analysis until link is clicked for steps with links
-      // We read currentStep from the DOM state via a closure-safe check.
-      // Use the component's safeStep via the ref-like pattern.
-      const stepForCheck = currentStep;
-      if (STEP_LINKS[stepForCheck] && !linkClickedSteps.has(stepForCheck)) {
+      // Use refs to avoid stale closure values inside setInterval
+      const stepForCheck = currentStepRef.current;
+      if (STEP_LINKS[stepForCheck] && !linkClickedStepsRef.current.has(stepForCheck)) {
         return; // Don't send frames until the user clicks the link
       }
 
