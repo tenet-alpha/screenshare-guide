@@ -313,12 +313,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       }
 
       case "audio":
-        setInstruction(data.text);
+        // Audio is for TTS only — don't overwrite the visual instruction
+        // The clean step instruction is set by stepComplete/connected messages
         setAudioData(data.audioData);
         break;
 
       case "instruction":
-        setInstruction(data.text);
+        // Text-only fallback (TTS failed) — also don't overwrite step instruction
         break;
 
       case "completed":

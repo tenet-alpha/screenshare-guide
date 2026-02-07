@@ -382,11 +382,6 @@ async function handleFrame(
           .where("token", "=", token)
           .execute();
 
-        // Build acknowledgment from extracted data
-        const extractedSummary = (analysis.extractedData || [])
-          .map((d: { label: string; value: string }) => `${d.label}: ${d.value}`)
-          .join(", ");
-
         if (state.currentStep >= state.totalSteps) {
           // Session complete — store extracted data in session metadata
           state.status = "completed";
@@ -416,10 +411,7 @@ async function handleFrame(
             message: "All steps completed!",
             extractedData: state.allExtractedData,
           }));
-          const completionMsg = extractedSummary
-            ? `I've captured everything. ${extractedSummary}. Great job — all steps are complete!`
-            : "Great job! You've completed all the steps.";
-          await sendInstruction(ws, completionMsg, state);
+          await sendInstruction(ws, "All steps complete. Verification finished.", state);
         } else {
           // Send next instruction with acknowledgment of what was found
           const nextStep = state.steps[state.currentStep];
@@ -432,28 +424,22 @@ async function handleFrame(
             })
           );
 
-          const ackPrefix = extractedSummary
-            ? `I can see ${extractedSummary}. Step complete! Now, `
-            : `Step complete! Now, `;
-          await sendInstruction(ws, `${ackPrefix}${nextStep.instruction}`, state);
+          await sendInstruction(ws, `Step complete. ${nextStep.instruction}`, state);
         }
       }
     } else {
       state.consecutiveSuccesses = 0;
 
-      // Provide contextual guidance based on what vision sees
+      // Provide actionable guidance — just say what to do, not what we see
       if (analysis.suggestedAction) {
         const now = Date.now();
         const isDifferentAction = state.lastSpokenAction === null || analysis.suggestedAction !== state.lastSpokenAction;
         const isStuckTimeout = (now - state.lastInstructionTime) >= 15000;
         
         if (isDifferentAction || isStuckTimeout) {
-          const seenContext = analysis.description !== "Unable to analyze frame"
-            ? `I can see ${analysis.description.toLowerCase()}. `
-            : "";
           state.lastSpokenAction = analysis.suggestedAction;
           state.lastInstructionTime = now;
-          await sendInstruction(ws, `${seenContext}${analysis.suggestedAction}`, state);
+          await sendInstruction(ws, analysis.suggestedAction, state);
         }
         // If skipping TTS, analysis event was already sent above — UI still updates
       }
