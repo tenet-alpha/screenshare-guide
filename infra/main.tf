@@ -101,7 +101,7 @@ resource "azurerm_linux_web_app" "main" {
     "ELEVENLABS_MODEL_ID"            = "eleven_turbo_v2_5"
     "AZURE_SPEECH_ENDPOINT"          = var.azure_speech_endpoint
     "AZURE_SPEECH_VOICE_NAME"        = "en-US-JennyNeural"
-    "AZURE_STORAGE_CONTAINER_NAME"   = azurerm_storage_container.recordings.name
+    "AZURE_STORAGE_CONTAINER"        = azurerm_storage_container.recordings.name
 
     # ── Infra secrets (from Terraform state, not user-managed) ──
     "DATABASE_URL"                   = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
@@ -160,7 +160,7 @@ resource "azurerm_storage_account" "main" {
 }
 
 resource "azurerm_storage_container" "recordings" {
-  name                  = "screenshare-recordings"
+  name                  = "recordings"
   storage_account_name  = azurerm_storage_account.main.name
   container_access_type = "private"
 }
