@@ -17,14 +17,22 @@ export default function HomePage() {
   const createProof = trpc.session.createProof.useMutation({
     onSuccess: (data) => {
       try {
+        // Guard: template must exist in response
+        if (!data.template) {
+          console.error("[createProof] Response missing template field:", JSON.stringify(data));
+          setSetupError("Server returned incomplete data (no template). Please try again.");
+          return;
+        }
+
         // Defensive: ensure template.steps is a valid array
-        const steps = Array.isArray(data.template?.steps)
+        const steps = Array.isArray(data.template.steps)
           ? data.template.steps
-          : typeof data.template?.steps === "string"
+          : typeof data.template.steps === "string"
             ? JSON.parse(data.template.steps as unknown as string)
             : [];
 
         if (!steps.length) {
+          console.error("[createProof] Empty or invalid steps:", data.template.steps);
           setSetupError("Invalid template data received. Please try again.");
           return;
         }
@@ -33,10 +41,14 @@ export default function HomePage() {
         setSession({
           token: data.token,
           sessionId: data.sessionId,
-          template: { ...data.template, steps },
+          template: {
+            id: data.template.id,
+            name: data.template.name,
+            steps,
+          },
         });
       } catch (err) {
-        console.error("Failed to parse session data:", err);
+        console.error("[createProof] Failed to parse session data:", err);
         setSetupError("Failed to initialize session. Please try again.");
       }
     },
@@ -46,7 +58,7 @@ export default function HomePage() {
   });
 
   // Active session — render the full proof experience
-  if (session) {
+  if (session?.template?.steps?.length) {
     return (
       <ScreenShareSession
         token={session.token}
