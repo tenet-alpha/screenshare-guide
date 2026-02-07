@@ -156,6 +156,17 @@ resource "azurerm_storage_account" "main" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
 
+  # CORS for client-side recording uploads (browser PUT to blob storage)
+  blob_properties {
+    cors_rule {
+      allowed_origins    = ["https://${azurerm_static_web_app.frontend.default_host_name}", "http://localhost:3000"]
+      allowed_methods    = ["PUT"]
+      allowed_headers    = ["x-ms-blob-type", "Content-Type"]
+      exposed_headers    = []
+      max_age_in_seconds = 3600
+    }
+  }
+
   tags = azurerm_resource_group.main.tags
 }
 
