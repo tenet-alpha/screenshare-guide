@@ -5,6 +5,12 @@ import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
 
 /**
+ * Steps that require a link click before analysis begins.
+ * Server will skip frame analysis for these steps until linkClicked is received.
+ */
+const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 1]);
+
+/**
  * Extraction schemas per step index.
  * Defines exactly what fields the vision model should extract.
  */
@@ -351,6 +357,11 @@ async function handleFrame(
 
   // Skip if session is completed
   if (state.status === "completed") {
+    return;
+  }
+
+  // Skip analysis if this step requires a link click and we haven't received one
+  if (STEPS_REQUIRING_LINK_CLICK.has(state.currentStep) && !state.linkClicked[state.currentStep]) {
     return;
   }
 

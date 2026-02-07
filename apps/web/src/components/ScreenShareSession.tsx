@@ -146,7 +146,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     });
     // Send linkClicked to backend
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "linkClicked", step: stepIndex + 1 }));
+      wsRef.current.send(JSON.stringify({ type: "linkClicked", step: stepIndex }));
     }
   }
 
