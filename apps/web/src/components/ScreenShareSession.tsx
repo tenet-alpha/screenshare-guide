@@ -426,7 +426,10 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     const hashCtx = hashCanvas.getContext("2d")!;
 
     frameIntervalRef.current = setInterval(() => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) {
+        console.log("[Frame] Skip: ws=%s, readyState=%d", wsRef.current?.readyState, video.readyState);
+        return;
+      }
 
       // Improvement #3: Pause frame analysis until link is clicked for steps with links
       // Use refs to avoid stale closure values inside setInterval
@@ -434,6 +437,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       if (STEP_LINKS[stepForCheck] && !linkClickedStepsRef.current.has(stepForCheck)) {
         return; // Don't send frames until the user clicks the link
       }
+
+      // Debug: log video dimensions and track state
+      const tracks = video.srcObject instanceof MediaStream ? video.srcObject.getVideoTracks() : [];
+      const trackState = tracks[0] ? { enabled: tracks[0].enabled, readyState: tracks[0].readyState, muted: tracks[0].muted } : "no track";
+      console.log("[Frame] video: %dx%d, readyState=%d, paused=%s, track=%o",
+        video.videoWidth, video.videoHeight, video.readyState, video.paused, trackState);
 
       // Improvement #1: Frame hash dedup
       hashCtx.drawImage(video, 0, 0, 16, 16);
@@ -446,6 +455,17 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         return; // Skip — unchanged screen within staleness window
       }
 
+      // Debug: check if frame is all black
+      let nonZeroPixels = 0;
+      for (let i = 0; i < pixelData.length; i += 4) {
+        if (pixelData[i] > 0 || pixelData[i + 1] > 0 || pixelData[i + 2] > 0) {
+          nonZeroPixels++;
+          break; // Found at least one non-black pixel
+        }
+      }
+      console.log("[Frame] hash=%d, prevHash=%d, allBlack=%s, sending frame",
+        hash, lastFrameHashRef.current, nonZeroPixels === 0);
+
       // Update hash and send time
       lastFrameHashRef.current = hash;
       lastFrameSendTimeRef.current = now;
@@ -453,6 +473,18 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       canvas.width = Math.min(video.videoWidth, 1024);
       canvas.height = Math.min(video.videoHeight, (canvas.width / video.videoWidth) * video.videoHeight);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Debug: check actual capture canvas too
+      const capturePixels = ctx.getImageData(0, 0, Math.min(canvas.width, 10), 1).data;
+      let captureNonZero = false;
+      for (let i = 0; i < capturePixels.length; i += 4) {
+        if (capturePixels[i] > 0 || capturePixels[i + 1] > 0 || capturePixels[i + 2] > 0) {
+          captureNonZero = true;
+          break;
+        }
+      }
+      console.log("[Frame] Capture canvas: %dx%d, hasContent=%s", canvas.width, canvas.height, captureNonZero);
+
       wsRef.current.send(JSON.stringify({ type: "frame", imageData: canvas.toDataURL("image/jpeg", 0.6) }));
     }, 1000);
   };
@@ -512,9 +544,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Off-screen video + canvas for frame capture — NOT display:none (breaks frame decoding) */}
-      <video ref={videoRef} autoPlay playsInline muted className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
-      <canvas ref={canvasRef} className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
+      {/* Video preview for debugging — shows what's being captured */}
+      <video ref={videoRef} autoPlay playsInline muted style={{
+        position: "fixed", bottom: 8, right: 8, width: 200, height: 120,
+        border: "2px solid #f59e0b", borderRadius: 8, zIndex: 9999,
+        objectFit: "cover", background: "#000",
+      }} />
+      <canvas ref={canvasRef} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }} />
 
       {/* Improvement #6: Sticky instruction bar for non-PiP browsers */}
       {status === "active" && !pipSupported && (
