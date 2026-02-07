@@ -432,6 +432,284 @@ describe("WebSocket message handling state transitions", () => {
   });
 });
 
+// ── Frame hash dedup logic (mirrors ScreenShareSession) ─────────────
+
+const FRAME_STALENESS_MS = 5000;
+
+function djb2Hash(data: Uint8ClampedArray, sampleStep: number = 4): number {
+  let hash = 5381;
+  for (let i = 0; i < data.length; i += sampleStep) {
+    hash = ((hash << 5) + hash + data[i]) | 0;
+  }
+  return hash;
+}
+
+function shouldSendFrame(
+  hash: number,
+  lastHash: number,
+  now: number,
+  lastSendTime: number
+): { send: boolean; reason: string } {
+  if (hash !== lastHash) {
+    return { send: true, reason: "changed" };
+  }
+  const elapsed = now - lastSendTime;
+  if (elapsed >= FRAME_STALENESS_MS) {
+    return { send: true, reason: "stale" };
+  }
+  return { send: false, reason: "skip" };
+}
+
+// ── Link-gate logic (mirrors ScreenShareSession) ────────────────────
+
+function shouldSkipForLinkGate(
+  stepLinks: Record<number, any>,
+  currentStep: number,
+  linkClickedSteps: Set<number>
+): boolean {
+  return !!stepLinks[currentStep] && !linkClickedSteps.has(currentStep);
+}
+
+// ── Copy results formatting (mirrors ScreenShareSession) ────────────
+
+function formatResults(data: ExtractedDataItem[], dateStr: string): string {
+  const lines = data.map((d) => `${d.label}: ${d.value}`).join("\n");
+  return `Instagram Audience Proof — Verified ${dateStr}\n\n${lines}`;
+}
+
+describe("frame hash dedup", () => {
+  it("sends frame when hash changes", () => {
+    const result = shouldSendFrame(12345, 99999, 1000, 500);
+    expect(result.send).toBe(true);
+    expect(result.reason).toBe("changed");
+  });
+
+  it("skips frame when hash is same and within staleness window", () => {
+    const now = 3000;
+    const lastSend = 1000; // 2s ago — within 5s window
+    const result = shouldSendFrame(12345, 12345, now, lastSend);
+    expect(result.send).toBe(false);
+    expect(result.reason).toBe("skip");
+  });
+
+  it("sends frame when hash is same but staleness threshold exceeded", () => {
+    const now = 10000;
+    const lastSend = 4000; // 6s ago — over 5s threshold
+    const result = shouldSendFrame(12345, 12345, now, lastSend);
+    expect(result.send).toBe(true);
+    expect(result.reason).toBe("stale");
+  });
+
+  it("sends frame at exactly 5s staleness boundary", () => {
+    const now = 6000;
+    const lastSend = 1000; // exactly 5s
+    const result = shouldSendFrame(12345, 12345, now, lastSend);
+    expect(result.send).toBe(true);
+    expect(result.reason).toBe("stale");
+  });
+
+  it("skips frame at 4999ms (just under staleness)", () => {
+    const now = 5999;
+    const lastSend = 1000;
+    const result = shouldSendFrame(12345, 12345, now, lastSend);
+    expect(result.send).toBe(false);
+    expect(result.reason).toBe("skip");
+  });
+
+  it("always sends first frame (lastHash=0, lastSendTime=0)", () => {
+    const result = shouldSendFrame(12345, 0, Date.now(), 0);
+    // hash !== lastHash (0), so it sends
+    expect(result.send).toBe(true);
+    expect(result.reason).toBe("changed");
+  });
+});
+
+describe("djb2Hash", () => {
+  it("produces consistent hash for same input", () => {
+    const data = new Uint8ClampedArray([10, 20, 30, 40, 50, 60, 70, 80]);
+    expect(djb2Hash(data, 4)).toBe(djb2Hash(data, 4));
+  });
+
+  it("produces different hash for different input", () => {
+    const a = new Uint8ClampedArray([10, 20, 30, 40, 50, 60, 70, 80]);
+    const b = new Uint8ClampedArray([80, 70, 60, 50, 40, 30, 20, 10]);
+    expect(djb2Hash(a, 4)).not.toBe(djb2Hash(b, 4));
+  });
+
+  it("handles empty array", () => {
+    const data = new Uint8ClampedArray([]);
+    expect(djb2Hash(data, 4)).toBe(5381); // Initial hash value
+  });
+
+  it("respects sampleStep parameter", () => {
+    const data = new Uint8ClampedArray(64);
+    for (let i = 0; i < 64; i++) data[i] = i;
+    const hash1 = djb2Hash(data, 1);
+    const hash8 = djb2Hash(data, 8);
+    // Different sample steps should produce different hashes
+    expect(hash1).not.toBe(hash8);
+  });
+});
+
+describe("link-gate logic", () => {
+  const stepLinks: Record<number, { url: string; label: string }> = {
+    0: { url: "https://example.com", label: "Open" },
+    1: { url: "https://example.com/insights", label: "Open Insights" },
+  };
+
+  it("skips frame for step 0 when link not clicked", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 0, new Set())).toBe(true);
+  });
+
+  it("skips frame for step 1 when link not clicked", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 1, new Set())).toBe(true);
+  });
+
+  it("allows frame for step 0 when link has been clicked", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 0, new Set([0]))).toBe(false);
+  });
+
+  it("allows frame for step 1 when link has been clicked", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 1, new Set([1]))).toBe(false);
+  });
+
+  it("allows frame for step 2 (no link required)", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 2, new Set())).toBe(false);
+  });
+
+  it("step 0 link click does not ungate step 1", () => {
+    expect(shouldSkipForLinkGate(stepLinks, 1, new Set([0]))).toBe(true);
+  });
+});
+
+describe("copy results formatting", () => {
+  it("formats collected data correctly", () => {
+    const data = [
+      { label: "Reach", value: "12,345" },
+      { label: "Followers", value: "4,000" },
+    ];
+    const result = formatResults(data, "February 7, 2026");
+    expect(result).toContain("Instagram Audience Proof — Verified February 7, 2026");
+    expect(result).toContain("Reach: 12,345");
+    expect(result).toContain("Followers: 4,000");
+  });
+
+  it("handles empty data", () => {
+    const result = formatResults([], "February 7, 2026");
+    expect(result).toBe("Instagram Audience Proof — Verified February 7, 2026\n\n");
+  });
+
+  it("handles single item", () => {
+    const result = formatResults([{ label: "Reach", value: "10K" }], "Jan 1, 2026");
+    expect(result).toBe("Instagram Audience Proof — Verified Jan 1, 2026\n\nReach: 10K");
+  });
+});
+
+// ── Audio queue logic (mirrors AudioPlayer) ─────────────────────────
+
+interface AudioQueueState {
+  queue: string[];
+  isPlaying: boolean;
+  completeFired: boolean;
+}
+
+function createAudioQueueState(): AudioQueueState {
+  return { queue: [], isPlaying: false, completeFired: false };
+}
+
+function enqueueAudio(state: AudioQueueState, audioData: string): AudioQueueState {
+  const next = { ...state, queue: [...state.queue] };
+  if (!next.isPlaying) {
+    // Play immediately
+    next.isPlaying = true;
+  } else {
+    // Queue it
+    next.queue.push(audioData);
+  }
+  return next;
+}
+
+function onAudioEnded(state: AudioQueueState): AudioQueueState {
+  const next = { ...state, queue: [...state.queue] };
+  if (next.queue.length > 0) {
+    // Play next from queue
+    next.queue.shift();
+    next.isPlaying = true;
+  } else {
+    // Queue fully drained
+    next.isPlaying = false;
+    next.completeFired = true;
+  }
+  return next;
+}
+
+describe("audio queue logic", () => {
+  it("plays immediately when nothing is playing", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "audio1");
+    expect(state.isPlaying).toBe(true);
+    expect(state.queue).toHaveLength(0);
+  });
+
+  it("queues audio when something is already playing", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "audio1"); // plays immediately
+    state = enqueueAudio(state, "audio2"); // should queue
+    expect(state.isPlaying).toBe(true);
+    expect(state.queue).toHaveLength(1);
+    expect(state.queue[0]).toBe("audio2");
+  });
+
+  it("plays next from queue when current clip ends", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "audio1");
+    state = enqueueAudio(state, "audio2");
+    state = onAudioEnded(state); // audio1 finishes
+    expect(state.isPlaying).toBe(true); // playing audio2
+    expect(state.queue).toHaveLength(0);
+    expect(state.completeFired).toBe(false);
+  });
+
+  it("fires onComplete only when queue is fully drained", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "audio1");
+    state = enqueueAudio(state, "audio2");
+    state = onAudioEnded(state); // audio1 finishes, plays audio2
+    expect(state.completeFired).toBe(false);
+    state = onAudioEnded(state); // audio2 finishes, queue empty
+    expect(state.completeFired).toBe(true);
+    expect(state.isPlaying).toBe(false);
+  });
+
+  it("handles single audio with no queue", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "audio1");
+    state = onAudioEnded(state);
+    expect(state.completeFired).toBe(true);
+    expect(state.isPlaying).toBe(false);
+    expect(state.queue).toHaveLength(0);
+  });
+
+  it("handles three clips queued", () => {
+    let state = createAudioQueueState();
+    state = enqueueAudio(state, "a1");
+    state = enqueueAudio(state, "a2");
+    state = enqueueAudio(state, "a3");
+    expect(state.queue).toHaveLength(2);
+
+    state = onAudioEnded(state); // a1 ends
+    expect(state.queue).toHaveLength(1);
+    expect(state.completeFired).toBe(false);
+
+    state = onAudioEnded(state); // a2 ends
+    expect(state.queue).toHaveLength(0);
+    expect(state.completeFired).toBe(false);
+
+    state = onAudioEnded(state); // a3 ends
+    expect(state.completeFired).toBe(true);
+  });
+});
+
 describe("malformed template data", () => {
   it("normalizeSteps handles a stringified array from DB", () => {
     const dbSteps = JSON.stringify([

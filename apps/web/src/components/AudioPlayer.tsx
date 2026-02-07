@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -12,13 +12,22 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const queueRef = useRef<string[]>([]);
+  const currentAudioRef = useRef<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const playAudio = useCallback((base64: string) => {
     const audio = audioRef.current;
-    if (!audio || !audioData) return;
+    if (!audio) return;
 
-    // Create blob URL from base64
-    const byteCharacters = atob(audioData);
+    // Revoke previous blob URL
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+
+    currentAudioRef.current = base64;
+    const byteCharacters = atob(base64);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -26,15 +35,49 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
+    blobUrlRef.current = url;
 
     audio.src = url;
     audio.play().catch(console.error);
+  }, []);
 
-    // Cleanup
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [audioData]);
+  // When new audioData arrives, either play immediately or queue it
+  useEffect(() => {
+    if (!audioData) return;
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // If nothing is currently playing, play immediately
+    if (!isPlaying && !currentAudioRef.current) {
+      playAudio(audioData);
+    } else {
+      // Queue it for later
+      queueRef.current.push(audioData);
+    }
+  }, [audioData, playAudio]); // intentionally not depending on isPlaying to avoid re-triggering
+
+  // Play next from queue when current clip ends
+  const handleEnded = useCallback(() => {
+    setIsPlaying(false);
+    setProgress(0);
+    currentAudioRef.current = null;
+
+    // Revoke blob URL
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+
+    // Check queue
+    if (queueRef.current.length > 0) {
+      const next = queueRef.current.shift()!;
+      playAudio(next);
+    } else {
+      // Queue fully drained — fire onComplete
+      onComplete?.();
+    }
+  }, [playAudio, onComplete]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -42,11 +85,6 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
 
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setProgress(0);
-      onComplete?.();
-    };
     const handleTimeUpdate = () => {
       if (audio.duration) {
         setProgress((audio.currentTime / audio.duration) * 100);
@@ -64,7 +102,16 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("timeupdate", handleTimeUpdate);
     };
-  }, [onComplete]);
+  }, [handleEnded]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+    };
+  }, []);
 
   const togglePlayback = () => {
     const audio = audioRef.current;
@@ -106,7 +153,7 @@ export function AudioPlayer({ audioData, onComplete }: Props) {
           />
         </div>
         <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
-          {isPlaying ? "Playing instruction..." : "Voice instruction"}
+          {isPlaying ? "Playing instruction..." : queueRef.current.length > 0 ? `${queueRef.current.length} queued` : "Voice instruction"}
         </p>
       </div>
 

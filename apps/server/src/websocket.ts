@@ -15,6 +15,9 @@ interface SessionState {
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
+  lastSpokenAction: string | null;
+  lastInstructionTime: number;
+  awaitingAudioComplete: boolean;
 }
 
 // In-memory session states (production would use Redis)
@@ -98,6 +101,18 @@ export const websocketHandler = new Elysia()
             : template.steps
         ) as SessionState["steps"];
 
+        // Restore extracted data from existing metadata (for reconnection resilience)
+        let restoredExtractedData: Array<{ label: string; value: string }> = [];
+        try {
+          const rawMetadata = session.metadata;
+          const parsed = typeof rawMetadata === "string" ? JSON.parse(rawMetadata) : rawMetadata;
+          if (parsed?.extractedData && Array.isArray(parsed.extractedData)) {
+            restoredExtractedData = parsed.extractedData;
+          }
+        } catch {
+          // Ignore parse errors — start fresh
+        }
+
         // Initialize session state (clamp currentStep to valid range)
         const clampedStep = Math.min(session.current_step, steps.length - 1);
         const state: SessionState = {
@@ -110,7 +125,10 @@ export const websocketHandler = new Elysia()
           lastAnalysisTime: 0,
           consecutiveSuccesses: 0,
           linkClicked: {},
-          allExtractedData: [],
+          allExtractedData: restoredExtractedData,
+          lastSpokenAction: null,
+          lastInstructionTime: 0,
+          awaitingAudioComplete: false,
         };
 
         activeSessions.set(token, state);
@@ -183,6 +201,11 @@ export const websocketHandler = new Elysia()
             await handleSkipStep(ws, state, token);
             break;
 
+          case "audioComplete":
+            state.awaitingAudioComplete = false;
+            state.status = "waiting";
+            break;
+
           case "ping":
             ws.send(JSON.stringify({ type: "pong" }));
             break;
@@ -214,10 +237,13 @@ function handleLinkClicked(ws: any, state: SessionState, step: number) {
     step,
   });
   state.linkClicked[step] = true;
+  // Reset lastSpokenAction so the first analysis after clicking gets a fresh instruction
+  state.lastSpokenAction = null;
 }
 
 /**
  * Accumulate extracted data (dedup by label, keep latest)
+ * Also persists incrementally to DB (fire-and-forget)
  */
 function accumulateExtractedData(
   state: SessionState,
@@ -233,6 +259,18 @@ function accumulateExtractedData(
       state.allExtractedData.push(item);
     }
   }
+
+  // Persist incrementally to DB (fire-and-forget)
+  db.updateTable("sessions")
+    .set({
+      metadata: JSON.stringify({ extractedData: state.allExtractedData }),
+      updated_at: new Date(),
+    })
+    .where("id", "=", state.sessionId)
+    .execute()
+    .catch((err) => {
+      log.error("Failed to persist incremental extracted data", err as Error);
+    });
 }
 
 /**
@@ -263,8 +301,8 @@ async function handleFrame(
     return;
   }
 
-  // Skip if session is completed or currently speaking
-  if (state.status === "completed" || state.status === "speaking") {
+  // Skip if session is completed, currently speaking, or awaiting audio playback
+  if (state.status === "completed" || state.status === "speaking" || state.awaitingAudioComplete) {
     return;
   }
 
@@ -323,6 +361,7 @@ async function handleFrame(
         // Advance to next step
         state.currentStep++;
         state.consecutiveSuccesses = 0;
+        state.lastSpokenAction = null; // Reset so next step's first instruction fires
 
         log.info("Session step advanced", {
           sessionId: state.sessionId,
@@ -398,14 +437,25 @@ async function handleFrame(
 
       // Provide contextual guidance based on what vision sees
       if (analysis.suggestedAction) {
-        const seenContext = analysis.description !== "Unable to analyze frame"
-          ? `I can see ${analysis.description.toLowerCase()}. `
-          : "";
-        await sendInstruction(ws, `${seenContext}${analysis.suggestedAction}`, state);
+        const now = Date.now();
+        const isDifferentAction = state.lastSpokenAction === null || analysis.suggestedAction !== state.lastSpokenAction;
+        const isStuckTimeout = (now - state.lastInstructionTime) >= 15000;
+        
+        if (isDifferentAction || isStuckTimeout) {
+          const seenContext = analysis.description !== "Unable to analyze frame"
+            ? `I can see ${analysis.description.toLowerCase()}. `
+            : "";
+          state.lastSpokenAction = analysis.suggestedAction;
+          state.lastInstructionTime = now;
+          await sendInstruction(ws, `${seenContext}${analysis.suggestedAction}`, state);
+        }
+        // If skipping TTS, analysis event was already sent above — UI still updates
       }
     }
 
-    state.status = "waiting";
+    if (state.status === "analyzing") {
+      state.status = "waiting";
+    }
   } catch (error) {
     logAI("vision", "analyzeFrame", Date.now() - startTime, error as Error);
     state.status = "waiting";
@@ -469,6 +519,7 @@ async function handleSkipStep(ws: any, state: SessionState, token: string) {
  */
 async function sendInstruction(ws: any, text: string, state: SessionState) {
   state.status = "speaking";
+  state.awaitingAudioComplete = true;
 
   const startTime = Date.now();
   try {
@@ -483,16 +534,18 @@ async function sendInstruction(ws: any, text: string, state: SessionState) {
         audioData: audioBase64,
       })
     );
+    // Do NOT reset status here — wait for "audioComplete" from client
   } catch (error) {
     logAI("tts", "generateSpeech", Date.now() - startTime, error as Error);
-    // Fall back to text only
+    // Fall back to text only — no audio to wait for
     ws.send(
       JSON.stringify({
         type: "instruction",
         text,
       })
     );
+    // Reset since there's no audio playback to wait for
+    state.awaitingAudioComplete = false;
+    state.status = "waiting";
   }
-
-  state.status = "waiting";
 }

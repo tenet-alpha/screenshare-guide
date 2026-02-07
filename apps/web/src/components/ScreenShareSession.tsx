@@ -34,6 +34,20 @@ const STEP_LINKS: Record<number, { url: string; label: string }> = {
   1: { url: "https://business.facebook.com/latest/insights/", label: "Open Insights →" },
 };
 
+// Frame hash staleness threshold (ms) — resend even if unchanged after this
+const FRAME_STALENESS_MS = 5000;
+
+/**
+ * djb2 hash — fast, good distribution for pixel data
+ */
+function djb2Hash(data: Uint8ClampedArray, sampleStep: number = 4): number {
+  let hash = 5381;
+  for (let i = 0; i < data.length; i += sampleStep) {
+    hash = ((hash << 5) + hash + data[i]) | 0; // hash * 33 + byte
+  }
+  return hash;
+}
+
 function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={cn("w-5 h-5", className)} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,6 +67,10 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const [pipSupported, setPipSupported] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
+
+  // Track which steps have had their link clicked (client-side)
+  const [linkClickedSteps, setLinkClickedSteps] = useState<Set<number>>(new Set());
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,6 +79,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const frameIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pipWindowRef = useRef<any>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Frame hash dedup refs
+  const hashCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastFrameHashRef = useRef<number>(0);
+  const lastFrameSendTimeRef = useRef<number>(0);
 
   // Defensive: ensure steps is always a valid array
   const steps: TemplateStep[] = (() => {
@@ -107,6 +130,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     const link = STEP_LINKS[stepIndex];
     if (!link) return;
     window.open(link.url, "_blank");
+    // Track client-side
+    setLinkClickedSteps((prev) => {
+      const next = new Set(prev);
+      next.add(stepIndex);
+      return next;
+    });
     // Send linkClicked to backend
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "linkClicked", step: stepIndex + 1 }));
@@ -140,14 +169,17 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     ).join("");
 
     const analyzingHtml = isAnalyzing
-      ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 0 0;"><div style="width:6px;height:6px;background:#3b82f6;border-radius:50%;animation:pulse 1s infinite;"></div><span style="color:#93c5fd;font-size:11px;">Analyzing...</span></div>`
+      ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 0 0;">
+          <div style="width:8px;height:8px;background:#3b82f6;border-radius:50%;animation:pulse 1s infinite;box-shadow:0 0 8px rgba(59,130,246,0.6);"></div>
+          <span style="color:#93c5fd;font-size:12px;font-weight:500;">Analyzing your screen...</span>
+        </div>`
       : "";
 
     const countdownHtml = countdown !== null
       ? `<div style="text-align:center;padding:8px 0;color:#22c55e;font-size:20px;font-weight:700;">Closing in ${countdown}...</div>`
       : "";
 
-    // Clickable link button for steps 1 and 2
+    // Clickable link button for steps 0 and 1
     const linkBtnHtml = stepLink && countdown === null
       ? `<button id="step-link" style="display:block;width:100%;margin-top:8px;padding:10px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;">${stepLink.label}</button>`
       : "";
@@ -190,6 +222,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       style.textContent = `
         body { margin: 0; background: #1f2937; overflow: hidden; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes shimmer { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); } 50% { box-shadow: 0 0 12px 4px rgba(59,130,246,0.2); } 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); } }
         button:hover { filter: brightness(1.1); }
       `;
       pip.document.head.appendChild(style);
@@ -340,8 +373,42 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     if (!canvas || !video) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Create offscreen 16×16 canvas for frame hashing (once)
+    if (!hashCanvasRef.current) {
+      hashCanvasRef.current = document.createElement("canvas");
+      hashCanvasRef.current.width = 16;
+      hashCanvasRef.current.height = 16;
+    }
+    const hashCanvas = hashCanvasRef.current;
+    const hashCtx = hashCanvas.getContext("2d")!;
+
     frameIntervalRef.current = setInterval(() => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
+
+      // Improvement #3: Pause frame analysis until link is clicked for steps with links
+      // We read currentStep from the DOM state via a closure-safe check.
+      // Use the component's safeStep via the ref-like pattern.
+      const stepForCheck = currentStep;
+      if (STEP_LINKS[stepForCheck] && !linkClickedSteps.has(stepForCheck)) {
+        return; // Don't send frames until the user clicks the link
+      }
+
+      // Improvement #1: Frame hash dedup
+      hashCtx.drawImage(video, 0, 0, 16, 16);
+      const pixelData = hashCtx.getImageData(0, 0, 16, 16).data;
+      const hash = djb2Hash(pixelData, 8); // sample every 8th byte
+      const now = Date.now();
+      const timeSinceLastSend = now - lastFrameSendTimeRef.current;
+
+      if (hash === lastFrameHashRef.current && timeSinceLastSend < FRAME_STALENESS_MS) {
+        return; // Skip — unchanged screen within staleness window
+      }
+
+      // Update hash and send time
+      lastFrameHashRef.current = hash;
+      lastFrameSendTimeRef.current = now;
+
       canvas.width = Math.min(video.videoWidth, 1024);
       canvas.height = Math.min(video.videoHeight, (canvas.width / video.videoWidth) * video.videoHeight);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -356,6 +423,32 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     }, 30000);
     return () => clearInterval(hb);
   }, []);
+
+  // Copy results to clipboard
+  const handleCopyResults = async () => {
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    const lines = collectedData.map((d) => `${d.label}: ${d.value}`).join("\n");
+    const text = `Instagram Audience Proof — Verified ${dateStr}\n\n${lines}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const safeStep = Math.min(currentStep, Math.max(totalSteps - 1, 0));
 
@@ -382,8 +475,39 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       <video ref={videoRef} autoPlay playsInline muted className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Improvement #6: Sticky instruction bar for non-PiP browsers */}
+      {status === "active" && !pipSupported && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-gray-900/90 backdrop-blur-sm border-b border-gray-700 px-4 py-3">
+          <div className="max-w-3xl mx-auto flex items-center gap-3">
+            <div className="bg-purple-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center shrink-0">
+              {safeStep + 1}
+            </div>
+            <p className="text-sm font-medium text-white truncate flex-1">
+              {instruction || steps[safeStep]?.instruction || "Loading..."}
+            </p>
+            {STEP_LINKS[safeStep] && (
+              <button
+                onClick={() => handleStepLinkClick(safeStep)}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors shrink-0"
+              >
+                {STEP_LINKS[safeStep].label}
+              </button>
+            )}
+            {isAnalyzing && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse shadow-[0_0_6px_rgba(96,165,250,0.6)]"></div>
+                <span className="text-xs text-blue-300">Analyzing...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm p-4 border-b border-gray-200 dark:border-gray-700">
+      <header className={cn(
+        "bg-white dark:bg-gray-800 shadow-sm p-4 border-b border-gray-200 dark:border-gray-700",
+        status === "active" && !pipSupported && "mt-12" // offset for sticky bar
+      )}>
         <div className="max-w-3xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-semibold bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent">
             Instagram Audience Proof
@@ -446,8 +570,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         {/* ===== ACTIVE ===== */}
         {(status === "active" || status === "ready" || status === "connecting") && (
           <div className="w-full space-y-6">
-            {/* Current instruction card */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            {/* Improvement #4: Enhanced analysis feedback — pulse border on instruction card */}
+            <div className={cn(
+              "bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300",
+              isAnalyzing && "border-blue-400/60 dark:border-blue-500/50 shadow-[0_0_15px_-3px_rgba(59,130,246,0.3)] animate-[analyzing-pulse_2s_ease-in-out_infinite]"
+            )}>
               <div className="flex items-start gap-4">
                 <div className="bg-purple-500 text-white text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center shrink-0">
                   {safeStep + 1}
@@ -465,15 +592,22 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                       {STEP_LINKS[safeStep].label}
                     </button>
                   )}
+                  {/* Improvement #3: Show waiting message if link not clicked yet */}
+                  {STEP_LINKS[safeStep] && !linkClickedSteps.has(safeStep) && (
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                      👆 Click the link above to open the page, then analysis will begin.
+                    </p>
+                  )}
                   {safeStep === 2 && (
                     <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                       Analyzing your insights data...
                     </p>
                   )}
+                  {/* Improvement #4: More visible analyzing indicator */}
                   {isAnalyzing && (
-                    <div className="flex items-center gap-2 mt-3 text-blue-600 dark:text-blue-400">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm">Analyzing your screen...</span>
+                    <div className="flex items-center gap-2.5 mt-3 text-blue-600 dark:text-blue-400">
+                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]"></div>
+                      <span className="text-sm font-medium">Analyzing your screen...</span>
                     </div>
                   )}
                 </div>
@@ -507,7 +641,13 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
 
             {/* Audio player */}
             {audioData && (
-              <AudioPlayer audioData={audioData} onComplete={() => setAudioData(null)} />
+              <AudioPlayer audioData={audioData} onComplete={() => {
+                setAudioData(null);
+                // Signal server that audio playback finished
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: "audioComplete" }));
+                }
+              }} />
             )}
 
             {/* Actions */}
@@ -569,7 +709,33 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
               </div>
             </div>
 
-            <div className="text-center mt-6">
+            {/* Improvement #5: Copy results + Back to Home */}
+            <div className="flex flex-col items-center gap-3 mt-6">
+              {collectedData.length > 0 && (
+                <button
+                  onClick={handleCopyResults}
+                  className={cn(
+                    "px-6 py-3 rounded-lg text-sm font-medium transition-all inline-flex items-center gap-2",
+                    copied
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                      : "bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                  )}
+                >
+                  {copied ? (
+                    <>
+                      <CheckIcon className="w-4 h-4" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy Results
+                    </>
+                  )}
+                </button>
+              )}
               <a href="/" className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-500 hover:from-purple-700 hover:to-pink-600 text-white font-medium rounded-lg transition-all inline-block">
                 Back to Home
               </a>

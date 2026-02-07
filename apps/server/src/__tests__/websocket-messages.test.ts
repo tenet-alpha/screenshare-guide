@@ -28,6 +28,9 @@ interface SessionState {
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
   allExtractedData: Array<{ label: string; value: string }>;
+  lastSpokenAction: string | null;
+  lastInstructionTime: number;
+  awaitingAudioComplete: boolean;
 }
 
 // Constants (must match websocket.ts)
@@ -39,6 +42,8 @@ const WS_RATE_LIMIT_MAX = 30;
 
 function handleLinkClicked(state: SessionState, step: number) {
   state.linkClicked[step] = true;
+  // Reset lastSpokenAction so the first analysis after clicking gets a fresh instruction
+  state.lastSpokenAction = null;
 }
 
 function accumulateExtractedData(
@@ -73,9 +78,19 @@ function hasAllStep3Metrics(state: SessionState): boolean {
 }
 
 function shouldAnalyzeFrame(state: SessionState, now: number): boolean {
-  if (state.status === "completed" || state.status === "speaking") return false;
+  if (state.status === "completed" || state.status === "speaking" || state.awaitingAudioComplete) return false;
   if (now - state.lastAnalysisTime < ANALYSIS_DEBOUNCE_MS) return false;
   return true;
+}
+
+/**
+ * Determines if a new TTS instruction should be sent for a suggestedAction.
+ * Deduplicates: only speaks if action changed or 15s stuck timeout elapsed.
+ */
+function shouldSendInstruction(state: SessionState, suggestedAction: string, now: number): boolean {
+  const isDifferentAction = state.lastSpokenAction === null || suggestedAction !== state.lastSpokenAction;
+  const isStuckTimeout = (now - state.lastInstructionTime) >= 15000;
+  return isDifferentAction || isStuckTimeout;
 }
 
 // Rate limiter
@@ -124,6 +139,9 @@ function createState(
     consecutiveSuccesses: 0,
     linkClicked: {},
     allExtractedData: [],
+    lastSpokenAction: null,
+    lastInstructionTime: 0,
+    awaitingAudioComplete: false,
     ...overrides,
   };
 }
@@ -168,6 +186,27 @@ describe("linkClicked handling", () => {
 
     expect(state.linkClicked[1]).toBe(true);
     expect(state.linkClicked[2]).toBe(true);
+  });
+
+  it("resets lastSpokenAction on link click (fresh instruction)", () => {
+    const state = createState({
+      lastSpokenAction: "Click the button to navigate",
+    });
+    handleLinkClicked(state, 1);
+
+    expect(state.linkClicked[1]).toBe(true);
+    expect(state.lastSpokenAction).toBeNull();
+  });
+
+  it("resets lastSpokenAction even on repeated link click", () => {
+    const state = createState({
+      lastSpokenAction: "Some action",
+    });
+    handleLinkClicked(state, 1);
+    state.lastSpokenAction = "New action after first click";
+    handleLinkClicked(state, 1);
+
+    expect(state.lastSpokenAction).toBeNull();
   });
 });
 
@@ -434,6 +473,11 @@ describe("frame debouncing", () => {
     expect(shouldAnalyzeFrame(state, Date.now())).toBe(false);
   });
 
+  it("blocks analysis when awaiting audio complete", () => {
+    const state = createState({ awaitingAudioComplete: true, lastAnalysisTime: 0 });
+    expect(shouldAnalyzeFrame(state, Date.now())).toBe(false);
+  });
+
   it("allows analysis when waiting", () => {
     const state = createState({ status: "waiting", lastAnalysisTime: 0 });
     expect(shouldAnalyzeFrame(state, Date.now())).toBe(true);
@@ -510,5 +554,67 @@ describe("rate limiting", () => {
 
     // Token B should still be fine
     expect(checkWsRateLimit("tok-b", now)).toBe(true);
+  });
+});
+
+describe("instruction deduplication", () => {
+  it("sends instruction when lastSpokenAction is null (first instruction)", () => {
+    const state = createState({ lastSpokenAction: null, lastInstructionTime: 0 });
+    expect(shouldSendInstruction(state, "Click the button", Date.now())).toBe(true);
+  });
+
+  it("sends instruction when suggestedAction is different from last", () => {
+    const now = Date.now();
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: now - 1000, // 1 second ago
+    });
+    expect(shouldSendInstruction(state, "Scroll down to see more", now)).toBe(true);
+  });
+
+  it("blocks instruction when suggestedAction is the same and within 15s", () => {
+    const now = Date.now();
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: now - 5000, // 5 seconds ago
+    });
+    expect(shouldSendInstruction(state, "Click the button", now)).toBe(false);
+  });
+
+  it("re-sends instruction after 15 seconds even if same action (stuck timeout)", () => {
+    const now = Date.now();
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: now - 15000, // exactly 15 seconds ago
+    });
+    expect(shouldSendInstruction(state, "Click the button", now)).toBe(true);
+  });
+
+  it("re-sends instruction well after 15 seconds", () => {
+    const now = Date.now();
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: now - 30000, // 30 seconds ago
+    });
+    expect(shouldSendInstruction(state, "Click the button", now)).toBe(true);
+  });
+
+  it("blocks repeated identical action at 14 seconds", () => {
+    const now = Date.now();
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: now - 14000,
+    });
+    expect(shouldSendInstruction(state, "Click the button", now)).toBe(false);
+  });
+
+  it("sends instruction after step advancement resets lastSpokenAction", () => {
+    const state = createState({
+      lastSpokenAction: "Click the button",
+      lastInstructionTime: Date.now(),
+    });
+    // Simulate step advancement
+    state.lastSpokenAction = null;
+    expect(shouldSendInstruction(state, "Navigate to insights", Date.now())).toBe(true);
   });
 });
