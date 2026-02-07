@@ -213,15 +213,188 @@ describe("STEP_LINKS mapping", () => {
   });
 });
 
-describe("immediate completion", () => {
-  it("'completed' message sets status directly to completed", () => {
-    const state = createInitialWsState();
+/**
+ * Models the stopScreenShare behavior in the component.
+ * keepStatus=true  → don't change status (used on completion)
+ * keepStatus=false → set status to "idle" (used on manual stop)
+ */
+function stopScreenShare(state: WsState, keepStatus = false): WsState {
+  const next = { ...state, completedSteps: new Set(state.completedSteps), collectedData: [...state.collectedData] };
+  if (!keepStatus) {
+    next.status = "idle";
+  }
+  return next;
+}
+
+describe("completion flow", () => {
+  const TOTAL = 2;
+
+  it("'completed' message sets status to completed", () => {
+    const state = { ...createInitialWsState(), status: "active", currentStep: 1 };
     const next = handleMessage(
       state,
       { type: "completed", extractedData: [{ label: "Reach", value: "10K" }] },
-      2
+      TOTAL
     );
     expect(next.status).toBe("completed");
+  });
+
+  it("'completed' marks the last step as done", () => {
+    const state = { ...createInitialWsState(), status: "active", currentStep: 1 };
+    const next = handleMessage(
+      state,
+      { type: "completed", extractedData: [] },
+      TOTAL
+    );
+    expect(next.completedSteps.has(1)).toBe(true);
+    expect(next.completedSteps.size).toBe(1);
+  });
+
+  it("'completed' accumulates final extractedData", () => {
+    const state = { ...createInitialWsState(), status: "active", currentStep: 1 };
+    const next = handleMessage(
+      state,
+      {
+        type: "completed",
+        extractedData: [
+          { label: "Reach", value: "12,345" },
+          { label: "Non-followers reached", value: "8,000" },
+          { label: "Followers reached", value: "4,345" },
+        ],
+      },
+      TOTAL
+    );
+    expect(next.collectedData).toHaveLength(3);
+    expect(next.collectedData[0]).toEqual({ label: "Reach", value: "12,345" });
+    expect(next.collectedData[1]).toEqual({ label: "Non-followers reached", value: "8,000" });
+    expect(next.collectedData[2]).toEqual({ label: "Followers reached", value: "4,345" });
+  });
+
+  it("'completed' preserves previously collected data", () => {
+    const state = {
+      ...createInitialWsState(),
+      status: "active",
+      currentStep: 1,
+      collectedData: [{ label: "Handle", value: "@testuser" }],
+    };
+    const next = handleMessage(
+      state,
+      { type: "completed", extractedData: [{ label: "Reach", value: "10K" }] },
+      TOTAL
+    );
+    expect(next.collectedData).toHaveLength(2);
+    expect(next.collectedData[0].label).toBe("Handle");
+    expect(next.collectedData[1].label).toBe("Reach");
+  });
+
+  it("stopScreenShare(keepStatus=true) does NOT overwrite completed status", () => {
+    // This was the actual bug: completed → stopScreenShare → idle
+    let state = { ...createInitialWsState(), status: "active", currentStep: 1 };
+
+    // Server sends completed
+    state = handleMessage(
+      state,
+      { type: "completed", extractedData: [{ label: "Reach", value: "10K" }] },
+      TOTAL
+    );
+    expect(state.status).toBe("completed");
+
+    // stopScreenShare called with keepStatus=true (as the component does)
+    state = stopScreenShare(state, true);
+    expect(state.status).toBe("completed"); // must stay completed!
+  });
+
+  it("stopScreenShare(keepStatus=false) resets to idle (manual stop)", () => {
+    const state = { ...createInitialWsState(), status: "active" };
+    const next = stopScreenShare(state, false);
+    expect(next.status).toBe("idle");
+  });
+
+  it("manual stop does NOT set completed status", () => {
+    const state = { ...createInitialWsState(), status: "active", currentStep: 0 };
+    const next = stopScreenShare(state, false);
+    expect(next.status).toBe("idle");
+    expect(next.completedSteps.size).toBe(0);
+  });
+
+  it("full 2-step flow: connected → step0 complete → step1 complete → completed", () => {
+    let state = createInitialWsState();
+
+    // 1. Connected at step 0
+    state = handleMessage(
+      state,
+      { type: "connected", currentStep: 0, instruction: "Open Meta Business Suite and verify your Instagram handle" },
+      TOTAL
+    );
+    expect(state.currentStep).toBe(0);
+    expect(state.status).toBe("idle"); // status is managed by component, not WS messages
+
+    // 2. Analysis results come in with handle data
+    state = handleMessage(
+      state,
+      { type: "analysis", extractedData: [{ label: "Handle", value: "@testuser" }] },
+      TOTAL
+    );
+    expect(state.collectedData).toHaveLength(1);
+    expect(state.collectedData[0]).toEqual({ label: "Handle", value: "@testuser" });
+
+    // 3. Step 0 completes, advance to step 1
+    state = handleMessage(
+      state,
+      { type: "stepComplete", currentStep: 1, nextInstruction: "Open Account Insights and capture your audience metrics" },
+      TOTAL
+    );
+    expect(state.completedSteps.has(0)).toBe(true);
+    expect(state.currentStep).toBe(1);
+    expect(state.instruction).toBe("Open Account Insights and capture your audience metrics");
+
+    // 4. Analysis results come in with metrics
+    state = handleMessage(
+      state,
+      {
+        type: "analysis",
+        extractedData: [
+          { label: "Reach", value: "12,345" },
+          { label: "Non-followers reached", value: "8,000" },
+          { label: "Followers reached", value: "4,345" },
+        ],
+      },
+      TOTAL
+    );
+    expect(state.collectedData).toHaveLength(4); // Handle + 3 metrics
+
+    // 5. Session completed
+    state = handleMessage(
+      state,
+      { type: "completed", extractedData: [] },
+      TOTAL
+    );
+    expect(state.status).toBe("completed");
+    expect(state.completedSteps.has(0)).toBe(true);
+    expect(state.completedSteps.has(1)).toBe(true);
+
+    // 6. stopScreenShare with keepStatus=true preserves completed
+    state = stopScreenShare(state, true);
+    expect(state.status).toBe("completed");
+    expect(state.collectedData).toHaveLength(4);
+  });
+
+  it("completed with no extractedData still transitions to completed", () => {
+    const state = { ...createInitialWsState(), status: "active", currentStep: 1 };
+    const next = handleMessage(state, { type: "completed" }, TOTAL);
+    expect(next.status).toBe("completed");
+    expect(next.completedSteps.has(1)).toBe(true);
+  });
+
+  it("completed after error is still possible (recovery)", () => {
+    let state = { ...createInitialWsState(), status: "error" };
+    state = handleMessage(
+      state,
+      { type: "completed", extractedData: [{ label: "Handle", value: "@user" }] },
+      TOTAL
+    );
+    expect(state.status).toBe("completed");
+    expect(state.collectedData).toHaveLength(1);
   });
 });
 
