@@ -43,6 +43,13 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
+# ─── Generated PostgreSQL admin password ────────────────────────────────────
+resource "random_password" "pg_admin" {
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}|:?,."
+}
+
 # ─── Resource Group ─────────────────────────────────────────────────────────
 resource "azurerm_resource_group" "main" {
   name     = "rg-${var.project}-${var.environment}"
@@ -144,7 +151,7 @@ resource "azurerm_linux_web_app" "main" {
     "API_KEY" = var.api_key
 
     # ── Infra secrets (from Terraform state) ──
-    "DATABASE_URL"                    = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
+    "DATABASE_URL"                    = "postgresql://${var.pg_admin_username}:${random_password.pg_admin.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
     "AZURE_STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
 
     # ── API Key secrets (Key Vault references) ──
@@ -163,7 +170,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
   location               = var.pg_location
   version                = "16"
   administrator_login    = var.pg_admin_username
-  administrator_password = var.pg_admin_password
+  administrator_password = random_password.pg_admin.result
   storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
   zone                   = "1"
@@ -268,6 +275,7 @@ resource "azurerm_role_assignment" "kv_app_reader" {
 # Secret placeholders — real values set via az CLI
 # lifecycle ignore_changes prevents Terraform from overwriting manual values
 locals {
+  # These secrets are managed manually via az CLI — Terraform only creates placeholders
   secret_names = [
     "AZURE-OPENAI-API-KEY",
     "ANTHROPIC-API-KEY",
@@ -284,6 +292,15 @@ resource "azurerm_key_vault_secret" "secrets" {
   lifecycle {
     ignore_changes = [value]
   }
+
+  depends_on = [azurerm_role_assignment.kv_admin]
+}
+
+# Store the generated PG password in Key Vault (Terraform-managed, not manual)
+resource "azurerm_key_vault_secret" "pg_admin_password" {
+  name         = "PG-ADMIN-PASSWORD"
+  value        = random_password.pg_admin.result
+  key_vault_id = azurerm_key_vault.main.id
 
   depends_on = [azurerm_role_assignment.kv_admin]
 }

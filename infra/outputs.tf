@@ -34,7 +34,7 @@ output "postgresql_fqdn" {
 }
 
 output "postgresql_database_url" {
-  value     = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
+  value     = "postgresql://${var.pg_admin_username}:${random_password.pg_admin.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
   sensitive = true
 }
 

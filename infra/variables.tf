@@ -37,11 +37,7 @@ variable "pg_admin_username" {
   default     = "pgadmin"
 }
 
-variable "pg_admin_password" {
-  description = "PostgreSQL admin password"
-  type        = string
-  sensitive   = true
-}
+# pg_admin_password is generated via random_password resource — no variable needed
 
 # ─── Azure OpenAI ────────────────────────────────────────────────────────────
 
