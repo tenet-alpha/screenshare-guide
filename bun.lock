@@ -20,6 +20,7 @@
         "@anthropic-ai/sdk": "^0.17.1",
         "@elysiajs/cors": "^1.0.2",
         "@screenshare-guide/db": "workspace:*",
+        "@screenshare-guide/protocol": "workspace:*",
         "@screenshare-guide/trpc": "workspace:*",
         "@trpc/server": "^10.45.0",
         "elysia": "^1.0.3",
@@ -37,6 +38,7 @@
       "name": "@screenshare-guide/web",
       "version": "0.0.1",
       "dependencies": {
+        "@screenshare-guide/protocol": "workspace:*",
         "@screenshare-guide/trpc": "workspace:*",
         "@tanstack/react-query": "^4.36.1",
         "@trpc/client": "^10.45.0",
@@ -74,12 +76,20 @@
         "typescript": "^5.3.3",
       },
     },
+    "packages/protocol": {
+      "name": "@screenshare-guide/protocol",
+      "version": "0.0.1",
+      "devDependencies": {
+        "typescript": "^5.0.0",
+      },
+    },
     "packages/trpc": {
       "name": "@screenshare-guide/trpc",
       "version": "0.0.1",
       "dependencies": {
         "@azure/storage-blob": "^12.30.0",
         "@screenshare-guide/db": "workspace:*",
+        "@screenshare-guide/protocol": "workspace:*",
         "@trpc/client": "^10.45.0",
         "@trpc/server": "^10.45.0",
         "nanoid": "^5.0.4",
@@ -166,6 +176,8 @@
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 
     "@screenshare-guide/db": ["@screenshare-guide/db@workspace:packages/db"],
+
+    "@screenshare-guide/protocol": ["@screenshare-guide/protocol@workspace:packages/protocol"],
 
     "@screenshare-guide/server": ["@screenshare-guide/server@workspace:apps/server"],
 

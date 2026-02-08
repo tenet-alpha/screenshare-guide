@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { INSTAGRAM_PROOF_TEMPLATE } from "@screenshare-guide/protocol";
 
 /**
  * createProof tRPC endpoint unit tests.
@@ -8,26 +9,6 @@ import { describe, it, expect, beforeEach, mock } from "bun:test";
  * The goal: prove the endpoint always returns correctly-shaped data
  * and that the template-reuse / step-parsing paths are exercised.
  */
-
-// ── Hardcoded template (must stay in sync with session.ts) ──────────
-const INSTAGRAM_PROOF_TEMPLATE = {
-  name: "Instagram Audience Proof",
-  description: "Verify Instagram audience metrics via live screen analysis",
-  steps: [
-    {
-      instruction: "Open Meta Business Suite and verify your Instagram handle",
-      successCriteria:
-        "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads. The Instagram handle/username must be visible and extracted.",
-      hints: [],
-    },
-    {
-      instruction: "Open Account Insights and capture your audience metrics",
-      successCriteria:
-        "The Insights overview page is open showing a summary section with actual numeric values for Reach, including a breakdown of Non-followers reached and Followers reached. This is NOT the sidebar menu — it must be the actual Insights dashboard with charts, numbers, and date ranges visible.",
-      hints: [],
-    },
-  ],
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { AudioPlayer } from "./AudioPlayer";
 import { trpc } from "@/lib/trpc";
+import { STEP_LINKS, FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem } from "@screenshare-guide/protocol";
 
 interface TemplateStep {
   instruction: string;
@@ -24,20 +26,6 @@ interface Props {
 
 type SessionStatus = "idle" | "connecting" | "ready" | "active" | "completed" | "error";
 type UploadStatus = "idle" | "uploading" | "done" | "failed" | "skipped";
-
-interface ExtractedDataItem {
-  label: string;
-  value: string;
-}
-
-// Step link URLs for the Instagram proof flow (2-step)
-const STEP_LINKS: Record<number, { url: string; label: string }> = {
-  0: { url: "https://business.facebook.com/latest/home", label: "Open Meta Business Suite →" },
-  1: { url: "https://business.facebook.com/latest/insights/", label: "Open Account Insights →" },
-};
-
-// Frame hash staleness threshold (ms) — resend even if unchanged after this
-const FRAME_STALENESS_MS = 5000;
 
 /**
  * djb2 hash — fast, good distribution for pixel data

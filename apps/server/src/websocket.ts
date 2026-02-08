@@ -1,33 +1,18 @@
 import { Elysia, t } from "elysia";
 import { analyzeFrame, generateSpeech } from "./ai";
-import type { ExtractionField } from "./ai";
 import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
-
-/**
- * Steps that require a link click before analysis begins.
- * Both steps have link buttons — analysis is gated until clicked.
- */
-const STEPS_REQUIRING_LINK_CLICK: Set<number> = new Set([0, 1]);
-
-/**
- * Extraction schemas per step index.
- * Step 0: Open MBS + extract Handle
- * Step 1: Open Insights + extract Reach, Non-followers, Followers
- */
-const STEP_EXTRACTION_SCHEMAS: Record<number, ExtractionField[]> = {
-  0: [
-    { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
-  ],
-  1: [
-    { field: "Reach", description: "Total reach number", required: true },
-    { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
-    { field: "Followers reached", description: "Number of followers reached", required: true },
-  ],
-};
-
-// Consensus threshold — how many times a value must be seen to be accepted
-const CONSENSUS_THRESHOLD = 2;
+import {
+  STEPS_REQUIRING_LINK_CLICK,
+  STEP_EXTRACTION_SCHEMAS,
+  CONSENSUS_THRESHOLD,
+  ANALYSIS_DEBOUNCE_MS,
+  SUCCESS_THRESHOLD,
+  WS_RATE_LIMIT_WINDOW,
+  WS_RATE_LIMIT_MAX,
+  TTS_QUIET_PERIOD_MS,
+  TTS_STUCK_TIMEOUT_MS,
+} from "@screenshare-guide/protocol";
 
 // Session state machine
 interface SessionState {
@@ -54,16 +39,8 @@ interface SessionState {
 // In-memory session states (production would use Redis)
 const activeSessions = new Map<string, SessionState>();
 
-// Minimum time between frame analyses (debouncing)
-const ANALYSIS_DEBOUNCE_MS = 400;
-
-// Consecutive successful analyses needed to advance
-const SUCCESS_THRESHOLD = 1;
-
 // Rate limiting for WebSocket messages
 const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
-const WS_RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const WS_RATE_LIMIT_MAX = 50; // 50 messages per 10s window (2fps + pings + events)
 
 function checkWsRateLimit(token: string): boolean {
   const now = Date.now();
@@ -506,18 +483,16 @@ async function handleFrame(
       // Stay silent during page loads (quiet period after link click).
       if (analysis.suggestedAction) {
         const now = Date.now();
-        const quietPeriodMs = 4000; // 4s silence after link click (page loading)
-        const stuckTimeoutMs = 15000; // 15s before repeating guidance
 
         // Suppress TTS during page load quiet period
-        if (now - state.linkClickedTime < quietPeriodMs) {
+        if (now - state.linkClickedTime < TTS_QUIET_PERIOD_MS) {
           // Page is likely still loading — stay silent, just track the action
           state.pendingSuggestedAction = analysis.suggestedAction;
         } else {
           // Stability gate: only speak if this action matches the previous pending action
           // (two consecutive analyses agree = screen has stabilized)
           const isStable = analysis.suggestedAction === state.pendingSuggestedAction;
-          const isStuckTimeout = (now - state.lastInstructionTime) >= stuckTimeoutMs;
+          const isStuckTimeout = (now - state.lastInstructionTime) >= TTS_STUCK_TIMEOUT_MS;
           const isNewAction = analysis.suggestedAction !== state.lastSpokenAction;
 
           if (isStable && isNewAction) {

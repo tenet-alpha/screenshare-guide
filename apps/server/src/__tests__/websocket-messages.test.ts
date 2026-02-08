@@ -1,4 +1,14 @@
 import { describe, it, expect, beforeEach } from "bun:test";
+import {
+  STEP_EXTRACTION_SCHEMAS,
+  ANALYSIS_DEBOUNCE_MS,
+  CONSENSUS_THRESHOLD,
+  WS_RATE_LIMIT_WINDOW,
+  WS_RATE_LIMIT_MAX,
+  TTS_QUIET_PERIOD_MS,
+  TTS_STUCK_TIMEOUT_MS,
+} from "@screenshare-guide/protocol";
+import type { ExtractedDataItem } from "@screenshare-guide/protocol";
 
 /**
  * WebSocket message handling unit tests.
@@ -11,7 +21,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
  * - rate limiting
  */
 
-// ── Types mirroring websocket.ts ────────────────────────────────────
+// ── Types mirroring websocket.ts (server-internal state) ────────────
 
 interface SessionState {
   sessionId: string;
@@ -27,18 +37,13 @@ interface SessionState {
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
   linkClicked: Record<number, boolean>;
-  allExtractedData: Array<{ label: string; value: string }>;
+  allExtractedData: ExtractedDataItem[];
   extractionVotes: Record<string, Record<string, number>>;
   lastSpokenAction: string | null;
   lastInstructionTime: number;
   linkClickedTime: number;
   pendingSuggestedAction: string | null;
 }
-
-// Constants (must match websocket.ts)
-const ANALYSIS_DEBOUNCE_MS = 400;
-const WS_RATE_LIMIT_WINDOW = 10000;
-const WS_RATE_LIMIT_MAX = 50;
 
 // ── Functions extracted from websocket.ts ───────────────────────────
 
@@ -47,8 +52,6 @@ function handleLinkClicked(state: SessionState, step: number) {
   // Reset lastSpokenAction so the first analysis after clicking gets a fresh instruction
   state.lastSpokenAction = null;
 }
-
-const CONSENSUS_THRESHOLD = 2;
 
 function accumulateExtractedData(
   state: SessionState,
@@ -84,19 +87,6 @@ function accumulateExtractedData(
   }
 }
 
-// Extraction schemas (must match websocket.ts)
-// Step 0: Open MBS + extract Handle, Step 1: Open Insights + extract metrics
-const STEP_EXTRACTION_SCHEMAS: Record<number, Array<{ field: string; description: string; required: boolean }>> = {
-  0: [
-    { field: "Handle", description: "Instagram handle", required: true },
-  ],
-  1: [
-    { field: "Reach", description: "Total reach", required: true },
-    { field: "Non-followers reached", description: "Non-followers reached", required: true },
-    { field: "Followers reached", description: "Followers reached", required: true },
-  ],
-};
-
 function hasAllRequiredFields(state: SessionState): boolean {
   const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
   if (!schema) return true;
@@ -124,18 +114,15 @@ function shouldSendInstruction(
   suggestedAction: string,
   now: number
 ): { speak: boolean; reason: string } {
-  const quietPeriodMs = 4000;
-  const stuckTimeoutMs = 15000;
-
   // Quiet period after link click
-  if (now - state.linkClickedTime < quietPeriodMs) {
+  if (now - state.linkClickedTime < TTS_QUIET_PERIOD_MS) {
     return { speak: false, reason: "quiet-period" };
   }
 
   // Stability gate: action must match pending (seen twice consecutively)
   const isStable = suggestedAction === state.pendingSuggestedAction;
   const isNewAction = suggestedAction !== state.lastSpokenAction;
-  const isStuckTimeout = (now - state.lastInstructionTime) >= stuckTimeoutMs;
+  const isStuckTimeout = (now - state.lastInstructionTime) >= TTS_STUCK_TIMEOUT_MS;
 
   if (isStable && isNewAction) {
     return { speak: true, reason: "stable-new-action" };

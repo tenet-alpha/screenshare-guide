@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test";
+import { STEP_LINKS, FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem } from "@screenshare-guide/protocol";
 
 /**
  * Frontend logic unit tests.
@@ -30,25 +32,9 @@ function normalizeSteps(raw: unknown): TemplateStep[] {
   }
 }
 
-// ── Step links (mirrors ScreenShareSession STEP_LINKS) ──────────────
-
-const STEP_LINKS: Record<number, { url: string; label: string }> = {
-  0: {
-    url: "https://business.facebook.com/latest/home",
-    label: "Open Meta Business Suite →",
-  },
-  1: {
-    url: "https://business.facebook.com/latest/insights/",
-    label: "Open Account Insights →",
-  },
-};
+// ── Step links imported from @screenshare-guide/protocol ────────────
 
 // ── Accumulated data dedup (mirrors accumulateData in component) ────
-
-interface ExtractedDataItem {
-  label: string;
-  value: string;
-}
 
 function accumulateData(
   prev: ExtractedDataItem[],
@@ -567,8 +553,6 @@ describe("WebSocket message handling state transitions", () => {
 });
 
 // ── Frame hash dedup logic (mirrors ScreenShareSession) ─────────────
-
-const FRAME_STALENESS_MS = 5000;
 
 function djb2Hash(data: Uint8ClampedArray, sampleStep: number = 4): number {
   let hash = 5381;

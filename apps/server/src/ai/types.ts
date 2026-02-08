@@ -2,10 +2,9 @@
  * AI Provider Types
  */
 
-export interface ExtractedDataItem {
-  label: string;
-  value: string;
-}
+// Re-export shared types from protocol
+export type { ExtractedDataItem, ExtractionField } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem, ExtractionField } from "@screenshare-guide/protocol";
 
 export interface FrameAnalysisResult {
   description: string;
@@ -25,16 +24,6 @@ export interface VoiceInfo {
   voice_id: string;
   name: string;
   category: string;
-}
-
-/**
- * Schema for expected extracted data fields per step.
- * The vision model must return data matching these exact field names.
- */
-export interface ExtractionField {
-  field: string;       // exact field name the model must use
-  description: string; // what the field represents (for the prompt)
-  required: boolean;   // must be present for step to complete
 }
 
 export interface VisionProvider {
