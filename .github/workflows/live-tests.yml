@@ -1,0 +1,56 @@
+name: Live AI Tests
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Daily at midnight PST (8:00 UTC)
+  workflow_dispatch:       # Manual trigger
+
+env:
+  LIVE_AI_TESTS: "1"
+  AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+  AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  DATABASE_URL: postgres://test:test@localhost:5432/test
+
+jobs:
+  live-tests:
+    name: Live AI Fixture Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run database migrations
+        run: bunx graphile-migrate migrate
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/test
+          ROOT_DATABASE_URL: postgres://test:test@localhost:5432/postgres
+          SHADOW_DATABASE_URL: postgres://test:test@localhost:5432/test_shadow
+
+      - name: Run live AI fixture tests
+        run: bun test apps/server/src/__tests__/ai-live-fixtures.test.ts
+        timeout-minutes: 5
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "::error::Live AI fixture tests failed — possible prompt regression or model behavior change"
