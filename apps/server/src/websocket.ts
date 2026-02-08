@@ -12,6 +12,7 @@ import {
   TTS_STUCK_TIMEOUT_MS,
 } from "@screenshare-guide/protocol";
 import type { ProofStep } from "@screenshare-guide/protocol";
+import { clientMessageSchema } from "./websocket-schemas";
 
 // Session state machine
 interface SessionState {
@@ -188,7 +189,24 @@ export const websocketHandler = new Elysia()
       }
 
       try {
-        const data = typeof message === "string" ? JSON.parse(message) : message;
+        // Max message size check BEFORE JSON.parse to prevent OOM
+        if (typeof message === "string" && message.length > 3 * 1024 * 1024) {
+          log.warn("WebSocket message too large, rejecting", { token: token.substring(0, 4), size: message.length });
+          ws.send(JSON.stringify({ type: "error", message: "Message too large" }));
+          return;
+        }
+
+        const raw = typeof message === "string" ? JSON.parse(message) : message;
+
+        // Validate message shape with zod
+        const parsed = clientMessageSchema.safeParse(raw);
+        if (!parsed.success) {
+          log.warn("Invalid WebSocket message format", { token: token.substring(0, 4), errors: parsed.error.issues });
+          ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
+          return;
+        }
+
+        const data = parsed.data;
 
         logWebSocket("message", token, { type: data.type });
 
@@ -217,9 +235,6 @@ export const websocketHandler = new Elysia()
           case "ping":
             ws.send(JSON.stringify({ type: "pong" }));
             break;
-
-          default:
-            log.debug("Unknown WebSocket message type", { type: data.type });
         }
       } catch (error) {
         log.error("WebSocket message processing failed", error as Error);
