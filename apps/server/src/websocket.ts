@@ -12,7 +12,12 @@ import {
   TTS_QUIET_PERIOD_MS,
   TTS_STUCK_TIMEOUT_MS,
   PROOF_TEMPLATES,
+  CHALLENGE_TIMEOUT_MS,
+  CHALLENGE_PROBABILITY,
+  computeTrustScore,
 } from "@screenshare-guide/protocol";
+import type { TrustSignals } from "@screenshare-guide/protocol";
+import { nanoid } from "nanoid";
 import {
   trackVisionAnalysis,
   trackTTSGeneration,
@@ -158,6 +163,17 @@ export const websocketHandler = new Elysia()
           lastInstructionTime: 0,
           linkClickedTime: 0,
           pendingSuggestedAction: null,
+          activeChallenge: null,
+          challengeResults: [],
+          challengeIssued: false,
+          trustSignals: {
+            urlVerifiedCount: 0,
+            urlNotVerifiedCount: 0,
+            framesAnalyzed: 0,
+            sessionStartedAt: Date.now(),
+            displaySurface: null,
+            clientPlatform: "web",
+          },
         };
 
         await sessionStore.set(token, state);
@@ -257,6 +273,25 @@ export const websocketHandler = new Elysia()
 
           case "ping":
             ws.send(JSON.stringify({ type: "pong" }));
+            break;
+
+          case "challengeAck":
+            log.info("Challenge acknowledged by client", {
+              sessionId: state.sessionId,
+              challengeId: data.challengeId,
+            });
+            break;
+
+          case "clientInfo":
+            log.info("Client info received", {
+              sessionId: state.sessionId,
+              platform: data.platform,
+              displaySurface: data.displaySurface,
+            });
+            state.trustSignals.clientPlatform = data.platform;
+            if (data.displaySurface) {
+              state.trustSignals.displaySurface = data.displaySurface;
+            }
             break;
         }
 
@@ -408,13 +443,23 @@ async function handleFrame(
 
   const startTime = Date.now();
   try {
+    // If a challenge is active, analyze against the challenge criteria instead
+    const isChallenge = state.activeChallenge !== null;
+    const analyzeInstruction = isChallenge
+      ? state.activeChallenge!.instruction
+      : currentStepData.instruction;
+    const analyzeCriteria = isChallenge
+      ? state.activeChallenge!.successCriteria
+      : currentStepData.successCriteria;
+
     // Analyze the frame with AI provider, passing extraction schema if defined
-    const schema = currentStepData.extractionSchema;
+    const schema = isChallenge ? undefined : currentStepData.extractionSchema;
     const analysis = await analyzeFrame(
       imageData,
-      currentStepData.instruction,
-      currentStepData.successCriteria,
-      schema
+      analyzeInstruction,
+      analyzeCriteria,
+      schema,
+      currentStepData.expectedDomain
     );
 
     const analysisDuration = Date.now() - startTime;
@@ -425,6 +470,14 @@ async function handleFrame(
       state.currentStep,
       analysis.confidence
     );
+
+    // Track trust signals
+    state.trustSignals.framesAnalyzed++;
+    if (analysis.urlVerified === true) {
+      state.trustSignals.urlVerifiedCount++;
+    } else if (currentStepData.expectedDomain) {
+      state.trustSignals.urlNotVerifiedCount++;
+    }
 
     // Filter extracted data to only include fields from known schemas
     const allKnownFields = new Set(
@@ -445,12 +498,51 @@ async function handleFrame(
         matchesSuccess: analysis.matchesSuccessCriteria,
         confidence: analysis.confidence,
         extractedData: validData,
+        ...(analysis.urlVerified !== undefined && { urlVerified: analysis.urlVerified }),
       })
     );
 
     if (analysis.matchesSuccessCriteria && analysis.confidence > 0.7) {
+      // If a challenge is active, handle challenge verification
+      if (state.activeChallenge) {
+        const responseTimeMs = Date.now() - state.activeChallenge.issuedAt;
+
+        // Check for timeout
+        if (responseTimeMs > state.activeChallenge.timeoutMs) {
+          log.info("Challenge timed out", {
+            sessionId: state.sessionId,
+            challengeId: state.activeChallenge.id,
+            responseTimeMs,
+          });
+          state.challengeResults.push({
+            challengeId: state.activeChallenge.id,
+            step: state.currentStep,
+            passed: false,
+            responseTimeMs,
+          });
+          state.activeChallenge = null;
+          // Still advance the step (silent flagging — don't block the user)
+        } else {
+          // Challenge succeeded
+          log.info("Challenge passed", {
+            sessionId: state.sessionId,
+            challengeId: state.activeChallenge.id,
+            responseTimeMs,
+          });
+          state.challengeResults.push({
+            challengeId: state.activeChallenge.id,
+            step: state.currentStep,
+            passed: true,
+            responseTimeMs,
+          });
+          state.activeChallenge = null;
+        }
+        // Fall through to advance the step below
+        state.consecutiveSuccesses = SUCCESS_THRESHOLD; // Ensure we advance
+      }
+
       // Check if all required fields from the extraction schema are present
-      if (!hasAllRequiredFields(state)) {
+      if (!state.activeChallenge && !hasAllRequiredFields(state)) {
         log.info("Not all required fields found yet", {
           sessionId: state.sessionId,
           step: state.currentStep,
@@ -463,10 +555,52 @@ async function handleFrame(
       state.consecutiveSuccesses++;
 
       if (state.consecutiveSuccesses >= SUCCESS_THRESHOLD) {
+        // Issue interaction challenge before advancing (if applicable)
+        if (
+          !state.challengeIssued &&
+          !state.activeChallenge &&
+          currentStepData.interactionChallenges?.length &&
+          Math.random() < CHALLENGE_PROBABILITY
+        ) {
+          const challenges = currentStepData.interactionChallenges;
+          const challenge = challenges[Math.floor(Math.random() * challenges.length)];
+          const challengeId = nanoid();
+          const timeoutMs = challenge.timeoutMs ?? CHALLENGE_TIMEOUT_MS;
+
+          state.activeChallenge = {
+            id: challengeId,
+            instruction: challenge.instruction,
+            successCriteria: challenge.successCriteria,
+            issuedAt: Date.now(),
+            timeoutMs,
+          };
+          state.challengeIssued = true;
+
+          log.info("Challenge issued", {
+            sessionId: state.sessionId,
+            challengeId,
+            instruction: challenge.instruction,
+          });
+
+          ws.send(JSON.stringify({
+            type: "challenge",
+            challengeId,
+            instruction: challenge.instruction,
+            timeoutMs,
+          }));
+
+          await sendInstruction(ws, challenge.instruction, state);
+
+          // Do NOT advance the step — return early
+          state.status = "waiting";
+          return;
+        }
+
         // Advance to next step
         state.currentStep++;
         state.consecutiveSuccesses = 0;
         state.lastSpokenAction = null; // Reset so next step's first instruction fires
+        state.challengeIssued = false; // Reset for next step
 
         log.info("Session step advanced", {
           sessionId: state.sessionId,
@@ -482,12 +616,28 @@ async function handleFrame(
           .execute();
 
         if (state.currentStep >= state.totalSteps) {
-          // Session complete — store extracted data in session metadata
+          // Session complete — compute trust score and store extracted data in session metadata
           state.status = "completed";
+
+          const trustSignals: TrustSignals = {
+            urlVerified: state.trustSignals.urlVerifiedCount > 0 && state.trustSignals.urlNotVerifiedCount === 0,
+            urlVerifiedRatio: state.trustSignals.framesAnalyzed > 0
+              ? state.trustSignals.urlVerifiedCount / state.trustSignals.framesAnalyzed : 0,
+            challengePassed: state.challengeResults.length > 0
+              ? state.challengeResults.every((r) => r.passed) : null,
+            challengeResponseMs: state.challengeResults.length > 0
+              ? state.challengeResults[state.challengeResults.length - 1].responseTimeMs : null,
+            sessionDurationMs: Date.now() - state.trustSignals.sessionStartedAt,
+            framesAnalyzed: state.trustSignals.framesAnalyzed,
+            displaySurface: state.trustSignals.displaySurface,
+            clientPlatform: state.trustSignals.clientPlatform,
+          };
+          const trustResult = computeTrustScore(trustSignals);
 
           const metadataJson = JSON.stringify({
             extractedData: state.allExtractedData,
             completedAt: new Date().toISOString(),
+            trust: trustResult,
           });
 
           await db
@@ -503,6 +653,8 @@ async function handleFrame(
           log.info("Session completed", {
             sessionId: state.sessionId,
             extractedData: state.allExtractedData,
+            trustScore: trustResult.score,
+            trustFlags: trustResult.flags,
           });
 
           // Fire-and-forget webhook notification
@@ -512,6 +664,7 @@ async function handleFrame(
             platform: state.platform,
             extractedData: state.allExtractedData,
             completedAt: new Date().toISOString(),
+            trust: trustResult,
           }).catch(() => {});
 
           trackSessionEvent("completed", state.sessionId, {
@@ -545,6 +698,89 @@ async function handleFrame(
         }
       }
     } else {
+      // Check for challenge timeout even on non-matching frames
+      if (state.activeChallenge) {
+        const responseTimeMs = Date.now() - state.activeChallenge.issuedAt;
+        if (responseTimeMs > state.activeChallenge.timeoutMs) {
+          log.info("Challenge timed out (non-match)", {
+            sessionId: state.sessionId,
+            challengeId: state.activeChallenge.id,
+            responseTimeMs,
+          });
+          state.challengeResults.push({
+            challengeId: state.activeChallenge.id,
+            step: state.currentStep,
+            passed: false,
+            responseTimeMs,
+          });
+          state.activeChallenge = null;
+          // Advance the step (silent flagging)
+          state.currentStep++;
+          state.consecutiveSuccesses = 0;
+          state.lastSpokenAction = null;
+          state.challengeIssued = false;
+
+          await db
+            .updateTable("sessions")
+            .set({ current_step: state.currentStep, updated_at: new Date() })
+            .where("token", "=", token)
+            .execute();
+
+          if (state.currentStep >= state.totalSteps) {
+            state.status = "completed";
+            // Build trust score
+            const trustSignals: TrustSignals = {
+              urlVerified: state.trustSignals.urlVerifiedCount > 0 && state.trustSignals.urlNotVerifiedCount === 0,
+              urlVerifiedRatio: state.trustSignals.framesAnalyzed > 0
+                ? state.trustSignals.urlVerifiedCount / state.trustSignals.framesAnalyzed : 0,
+              challengePassed: state.challengeResults.length > 0
+                ? state.challengeResults.every((r) => r.passed) : null,
+              challengeResponseMs: state.challengeResults.length > 0
+                ? state.challengeResults[state.challengeResults.length - 1].responseTimeMs : null,
+              sessionDurationMs: Date.now() - state.trustSignals.sessionStartedAt,
+              framesAnalyzed: state.trustSignals.framesAnalyzed,
+              displaySurface: state.trustSignals.displaySurface,
+              clientPlatform: state.trustSignals.clientPlatform,
+            };
+            const trustResult = computeTrustScore(trustSignals);
+
+            const metadataJson = JSON.stringify({
+              extractedData: state.allExtractedData,
+              completedAt: new Date().toISOString(),
+              trust: trustResult,
+            });
+
+            await db
+              .updateTable("sessions")
+              .set({ status: "completed", metadata: metadataJson, updated_at: new Date() })
+              .where("token", "=", token)
+              .execute();
+
+            notifyWebhook({
+              event: "session.completed",
+              sessionId: state.sessionId,
+              platform: state.platform,
+              extractedData: state.allExtractedData,
+              completedAt: new Date().toISOString(),
+              trust: trustResult,
+            }).catch(() => {});
+
+            ws.send(JSON.stringify({ type: "completed", message: "All steps completed!", extractedData: state.allExtractedData }));
+            await sendInstruction(ws, "All steps complete. Verification finished.", state);
+          } else {
+            const nextStep = state.steps[state.currentStep];
+            ws.send(JSON.stringify({
+              type: "stepComplete",
+              currentStep: state.currentStep,
+              totalSteps: state.totalSteps,
+              nextInstruction: nextStep.instruction,
+            }));
+            await sendInstruction(ws, `Step complete. ${nextStep.instruction}`, state);
+          }
+          return;
+        }
+      }
+
       state.consecutiveSuccesses = 0;
 
       // TTS strategy: don't narrate every frame change.

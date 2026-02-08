@@ -24,6 +24,18 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("skipStep"),
   }),
+  z.object({
+    type: z.literal("challengeAck"),
+    challengeId: z.string().min(1).max(64),
+  }),
+  z.object({
+    type: z.literal("clientInfo"),
+    platform: z.enum(["web", "ios", "android"]),
+    displaySurface: z.string().max(64).optional(),
+    screenResolution: z.string().max(32).optional(),
+    devicePixelRatio: z.number().min(0).max(10).optional(),
+    timezone: z.string().max(64).optional(),
+  }),
 ]);
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;

@@ -32,6 +32,14 @@ export const TTS_QUIET_PERIOD_MS = 4000;
 /** Time before repeating guidance when user appears stuck, in ms */
 export const TTS_STUCK_TIMEOUT_MS = 15000;
 
+// ── Anti-forgery constants ───────────────────────────────────────────
+
+/** Default timeout for interaction challenges in ms */
+export const CHALLENGE_TIMEOUT_MS = 15000;
+
+/** Probability of issuing a challenge per step (0.0 - 1.0) */
+export const CHALLENGE_PROBABILITY = 0.4;
+
 // ── Client-side constants ───────────────────────────────────────────
 
 /** Frame hash staleness threshold (ms) — resend even if unchanged after this */

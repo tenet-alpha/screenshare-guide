@@ -59,6 +59,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   // Refs that mirror state for use inside setInterval closures
   const currentStepRef = useRef(currentStep);
   const linkClickedStepsRef = useRef(linkClickedSteps);
+  const wsSendRef = useRef<(msg: object) => void>(() => {});
   useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
   useEffect(() => { linkClickedStepsRef.current = linkClickedSteps; }, [linkClickedSteps]);
 
@@ -111,6 +112,11 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         break;
       case "instruction":
         break;
+      case "challenge":
+        // Anti-forgery: server is asking the user to perform an interaction
+        setInstruction(data.instruction);
+        wsSendRef.current({ type: "challengeAck", challengeId: data.challengeId });
+        break;
       case "completed":
         if (data.extractedData?.length) {
           accumulateData(data.extractedData);
@@ -138,6 +144,9 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     onConnected: () => setStatus("ready"),
     onError: (msg) => { setError(msg); setStatus("error"); },
   });
+
+  // Keep wsSendRef in sync for use in callbacks defined before useWebSocket
+  useEffect(() => { wsSendRef.current = wsSend; }, [wsSend]);
 
   const { videoRef, canvasRef, streamRef, startCapture, stopCapture } = useFrameCapture({
     wsRef,
@@ -212,10 +221,25 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       const track = stream.getVideoTracks()[0];
       track.addEventListener("ended", () => stopScreenShare());
 
+      // Gather client info for anti-forgery trust signals
+      const trackSettings = track.getSettings() as any;
+      const clientInfo = {
+        type: "clientInfo" as const,
+        platform: "web" as const,
+        displaySurface: trackSettings.displaySurface || undefined,
+        screenResolution: trackSettings.width && trackSettings.height
+          ? `${trackSettings.width}x${trackSettings.height}` : undefined,
+        devicePixelRatio: window.devicePixelRatio || undefined,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+      };
+
       // Connect WebSocket
       connectWebSocket();
 
       setStatus("active");
+
+      // Send client info for trust signals (slight delay to ensure WS is open)
+      setTimeout(() => wsSend(clientInfo), 500);
 
       // Auto-open PiP
       if ("documentPictureInPicture" in window) {

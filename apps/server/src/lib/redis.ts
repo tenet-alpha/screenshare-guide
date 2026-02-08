@@ -30,6 +30,30 @@ export interface SessionState {
   lastInstructionTime: number;
   linkClickedTime: number;
   pendingSuggestedAction: string | null;
+  // Anti-forgery: interaction challenges
+  activeChallenge: {
+    id: string;
+    instruction: string;
+    successCriteria: string;
+    issuedAt: number;
+    timeoutMs: number;
+  } | null;
+  challengeResults: Array<{
+    challengeId: string;
+    step: number;
+    passed: boolean;
+    responseTimeMs: number;
+  }>;
+  challengeIssued: boolean;
+  // Anti-forgery: trust signals
+  trustSignals: {
+    urlVerifiedCount: number;
+    urlNotVerifiedCount: number;
+    framesAnalyzed: number;
+    sessionStartedAt: number;
+    displaySurface: string | null;
+    clientPlatform: string;
+  };
 }
 
 // ─── Session Store Interface ────────────────────────────────────────

@@ -13,6 +13,7 @@ export interface FrameAnalysisResult {
   confidence: number;
   suggestedAction?: string;
   extractedData?: ExtractedDataItem[];
+  urlVerified?: boolean;
 }
 
 export interface QuickCheckResult {
@@ -31,7 +32,8 @@ export interface VisionProvider {
     imageBase64: string,
     currentInstruction: string,
     successCriteria: string,
-    extractionSchema?: ExtractionField[]
+    extractionSchema?: ExtractionField[],
+    expectedDomain?: string
   ): Promise<FrameAnalysisResult>;
 
   quickElementCheck(

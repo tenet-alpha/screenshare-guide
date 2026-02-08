@@ -8,6 +8,20 @@
 import type { ExtractionField } from "./messages";
 
 /**
+ * An interaction challenge used for anti-forgery verification.
+ * The server picks one at random after a step's success criteria is met,
+ * asks the user to perform it, and verifies via frame analysis.
+ */
+export interface InteractionChallenge {
+  /** What to tell the user to do */
+  instruction: string;
+  /** What the AI should look for after the user acts */
+  successCriteria: string;
+  /** How long to wait for the challenge (default: CHALLENGE_TIMEOUT_MS) */
+  timeoutMs?: number;
+}
+
+/**
  * A single step in a proof template.
  * Each step optionally has a navigation link, extraction schema, and link-gate.
  */
@@ -22,6 +36,10 @@ export interface ProofStep {
   extractionSchema?: ExtractionField[];
   requiresLinkClick?: boolean;
   hints?: string[];
+  /** Expected domain for URL verification (anti-forgery) */
+  expectedDomain?: string;
+  /** Interaction challenges for anti-forgery verification */
+  interactionChallenges?: InteractionChallenge[];
 }
 
 /**
@@ -57,6 +75,11 @@ export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
       extractionSchema: [
         { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
       ],
+      expectedDomain: "business.facebook.com",
+      interactionChallenges: [
+        { instruction: "Click on 'Notifications' in the left sidebar", successCriteria: "The Notifications panel or page is now visible" },
+        { instruction: "Click on 'Home' in the left sidebar to return to the main dashboard", successCriteria: "The Meta Business Suite home/dashboard page is visible again" },
+      ],
       hints: [],
     },
     {
@@ -71,6 +94,11 @@ export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
         { field: "Reach", description: "Total reach number", required: true },
         { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
         { field: "Followers reached", description: "Number of followers reached", required: true },
+      ],
+      expectedDomain: "business.facebook.com",
+      interactionChallenges: [
+        { instruction: "Click the date range selector and change the time period", successCriteria: "The date range picker is open or the metrics have changed to reflect a different date range" },
+        { instruction: "Scroll down to show more metrics on the page", successCriteria: "The page has scrolled down showing additional metrics or charts below the initial view" },
       ],
       hints: [],
     },

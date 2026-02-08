@@ -13,6 +13,7 @@ export {
 } from "./messages";
 
 export {
+  type InteractionChallenge,
   type ProofStep,
   type ProofTemplate,
   INSTAGRAM_PROOF_TEMPLATE,
@@ -29,4 +30,8 @@ export {
   TTS_QUIET_PERIOD_MS,
   TTS_STUCK_TIMEOUT_MS,
   FRAME_STALENESS_MS,
+  CHALLENGE_TIMEOUT_MS,
+  CHALLENGE_PROBABILITY,
 } from "./constants";
+
+export { type TrustSignals, type TrustResult, computeTrustScore } from "./trust";

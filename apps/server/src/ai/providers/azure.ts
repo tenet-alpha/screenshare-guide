@@ -50,7 +50,8 @@ class AzureOpenAIVisionProvider implements VisionProvider {
     imageBase64: string,
     currentInstruction: string,
     successCriteria: string,
-    extractionSchema?: ExtractionField[]
+    extractionSchema?: ExtractionField[],
+    expectedDomain?: string
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present and prepare data URL
     let imageUrl: string;
@@ -74,17 +75,24 @@ ${fieldList}
 }`;
     }
 
+    const urlVerificationInstruction = expectedDomain
+      ? `\nWhen an expectedDomain is provided, you MUST verify the browser address bar shows a URL on that domain. If the URL bar is not visible, shows a different domain, localhost, file://, or any non-matching URL, set matchesSuccessCriteria to false regardless of other criteria.`
+      : "";
+
     const systemPrompt = `You are an AI assistant analyzing a user's screen to verify they've completed a step.
-Keep responses concise. Focus on whether the success criteria is met and what action to take next.${schemaInstruction}`;
+Keep responses concise. Focus on whether the success criteria is met and what action to take next.${schemaInstruction}${urlVerificationInstruction}`;
+
+    const expectedDomainLine = expectedDomain ? `\nExpected domain: "${expectedDomain}"` : "";
+    const urlVerifiedField = expectedDomain ? `\n  "urlVerified": boolean (true if address bar shows a URL on the expected domain),` : "";
 
     const userPrompt = `Instruction: "${currentInstruction}"
-Success criteria: "${successCriteria}"${schemaFields}
+Success criteria: "${successCriteria}"${schemaFields}${expectedDomainLine}
 
 Analyze this screenshot. Respond in JSON only:
 {
   "matchesSuccessCriteria": boolean,
   "confidence": number (0.0-1.0),
-  "suggestedAction": "string or null (only if criteria NOT met — say what to do, not what you see)",
+  "suggestedAction": "string or null (only if criteria NOT met — say what to do, not what you see)",${urlVerifiedField}
   "extractedData": [{"label": "<exact field name from schema>", "value": "string"}]
 }`;
 
@@ -164,6 +172,7 @@ Analyze this screenshot. Respond in JSON only:
         extractedData: Array.isArray(result.extractedData)
           ? result.extractedData.filter((d: any) => d.label && d.value)
           : undefined,
+        urlVerified: expectedDomain ? Boolean(result.urlVerified) : undefined,
       };
     } catch (error) {
       console.error("[Azure OpenAI Vision] Analysis error:", error);

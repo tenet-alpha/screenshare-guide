@@ -1,4 +1,5 @@
 import { log } from "./logger";
+import type { TrustResult } from "@screenshare-guide/protocol";
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
@@ -9,6 +10,7 @@ export interface WebhookPayload {
   platform: string;
   extractedData: Array<{ label: string; value: string }>;
   completedAt: string;
+  trust?: TrustResult;
 }
 
 export async function notifyWebhook(payload: WebhookPayload): Promise<void> {

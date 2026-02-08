@@ -33,7 +33,8 @@ class AnthropicVisionProvider implements VisionProvider {
     imageBase64: string,
     currentInstruction: string,
     successCriteria: string,
-    extractionSchema?: ExtractionField[]
+    extractionSchema?: ExtractionField[],
+    expectedDomain?: string
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -46,6 +47,10 @@ class AnthropicVisionProvider implements VisionProvider {
       mediaType = "image/webp";
     }
 
+    const urlVerificationInstruction = expectedDomain
+      ? `\nWhen an expectedDomain is provided, you MUST verify the browser address bar shows a URL on that domain. If the URL bar is not visible, shows a different domain, localhost, file://, or any non-matching URL, set matchesSuccessCriteria to false regardless of other criteria.`
+      : "";
+
     const systemPrompt = `You are an AI assistant helping a user complete a task by analyzing their screen.
 Your job is to:
 1. Describe what you see on screen
@@ -55,11 +60,14 @@ Your job is to:
 5. If the user seems stuck, provide helpful guidance
 
 Be concise and helpful. Focus on actionable observations.
-CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.`;
+CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.${urlVerificationInstruction}`;
+
+    const expectedDomainLine = expectedDomain ? `\nExpected domain: "${expectedDomain}"` : "";
+    const urlVerifiedField = expectedDomain ? `\n  "urlVerified": boolean,` : "";
 
     const userPrompt = `Current instruction for the user: "${currentInstruction}"
 
-Success criteria (what indicates this step is complete): "${successCriteria}"
+Success criteria (what indicates this step is complete): "${successCriteria}"${expectedDomainLine}
 
 Please analyze this screenshot and provide:
 1. A brief description of what's visible on screen
@@ -67,7 +75,7 @@ Please analyze this screenshot and provide:
 3. Whether the success criteria appears to be met (true/false)
 4. Your confidence level (0.0 to 1.0)
 5. If the criteria is NOT met, a suggested action for the user
-6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs
+6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs${expectedDomain ? "\n7. Whether the browser URL bar shows the expected domain" : ""}
 
 Respond in JSON format:
 {
@@ -75,7 +83,7 @@ Respond in JSON format:
   "detectedElements": ["string"],
   "matchesSuccessCriteria": boolean,
   "confidence": number,
-  "suggestedAction": "string or null",
+  "suggestedAction": "string or null",${urlVerifiedField}
   "extractedData": [{"label": "string", "value": "string"}]
 }`;
 
@@ -131,6 +139,7 @@ Respond in JSON format:
         extractedData: Array.isArray(result.extractedData)
           ? result.extractedData.filter((d: any) => d.label && d.value)
           : undefined,
+        urlVerified: expectedDomain ? Boolean(result.urlVerified) : undefined,
       };
     } catch (error) {
       console.error("[Anthropic Vision] Analysis error:", error);

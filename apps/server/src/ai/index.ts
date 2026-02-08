@@ -43,8 +43,8 @@ export function resetProviders(): void {
   _ttsProvider = null;
 }
 
-export async function analyzeFrame(imageBase64: string, currentInstruction: string, successCriteria: string, extractionSchema?: import("./types").ExtractionField[]) {
-  return getVisionProvider().analyzeFrame(imageBase64, currentInstruction, successCriteria, extractionSchema);
+export async function analyzeFrame(imageBase64: string, currentInstruction: string, successCriteria: string, extractionSchema?: import("./types").ExtractionField[], expectedDomain?: string) {
+  return getVisionProvider().analyzeFrame(imageBase64, currentInstruction, successCriteria, extractionSchema, expectedDomain);
 }
 
 export async function quickElementCheck(imageBase64: string, elementDescription: string) {
