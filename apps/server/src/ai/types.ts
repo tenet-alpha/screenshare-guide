@@ -14,6 +14,12 @@ export interface FrameAnalysisResult {
   suggestedAction?: string;
   extractedData?: ExtractedDataItem[];
   urlVerified?: boolean;
+  /**
+   * Visual continuity assessment — is the UI chrome (taskbar, dock,
+   * notification bar, browser frame) consistent with the previous frame?
+   * null on first frame (no baseline), true/false on subsequent frames.
+   */
+  visualContinuity?: boolean;
 }
 
 export interface QuickCheckResult {
@@ -33,7 +39,9 @@ export interface VisionProvider {
     currentInstruction: string,
     successCriteria: string,
     extractionSchema?: ExtractionField[],
-    expectedDomain?: string
+    expectedDomain?: string,
+    /** Description of the previous frame for visual continuity checking */
+    previousFrameDescription?: string
   ): Promise<FrameAnalysisResult>;
 
   quickElementCheck(

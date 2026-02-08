@@ -18,7 +18,7 @@ export interface ExtractionField {
 
 // Client → Server messages
 export type ClientMessage =
-  | { type: "frame"; imageData: string }
+  | { type: "frame"; imageData: string; frameHash?: string }
   | { type: "linkClicked"; step: number }
   | { type: "audioComplete" }
   | { type: "ping" }

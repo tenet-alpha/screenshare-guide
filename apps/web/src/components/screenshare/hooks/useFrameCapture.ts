@@ -80,7 +80,12 @@ export function useFrameCapture({
       canvas.width = Math.min(video.videoWidth, 1024);
       canvas.height = Math.min(video.videoHeight, (canvas.width / video.videoWidth) * video.videoHeight);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      wsRef.current.send(JSON.stringify({ type: "frame", imageData: canvas.toDataURL("image/jpeg", 0.6) }));
+      wsRef.current.send(JSON.stringify({
+        type: "frame",
+        imageData: canvas.toDataURL("image/jpeg", 0.6),
+        // Send perceptual hash for server-side frame similarity analysis
+        frameHash: String(hash),
+      }));
     }, 500);
   }, [wsRef, steps, currentStepRef, linkClickedStepsRef]);
 

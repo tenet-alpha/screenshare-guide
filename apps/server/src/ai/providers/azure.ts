@@ -51,7 +51,8 @@ class AzureOpenAIVisionProvider implements VisionProvider {
     currentInstruction: string,
     successCriteria: string,
     extractionSchema?: ExtractionField[],
-    expectedDomain?: string
+    expectedDomain?: string,
+    previousFrameDescription?: string
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present and prepare data URL
     let imageUrl: string;
@@ -79,20 +80,27 @@ ${fieldList}
       ? `\nWhen an expectedDomain is provided, you MUST verify the browser address bar shows a URL on that domain. If the URL bar is not visible, shows a different domain, localhost, file://, or any non-matching URL, set matchesSuccessCriteria to false regardless of other criteria.`
       : "";
 
+    const continuityInstruction = previousFrameDescription
+      ? `\nVISUAL CONTINUITY CHECK: Compare this frame against the previous frame description. Check OS-level UI chrome (taskbar/dock, notification bar, window decorations, browser frame) is consistent. Set "visualContinuity" to true if chrome is consistent (content changes are expected), false if chrome changed abruptly (different OS, resolution, missing/changed taskbar).
+Previous frame: "${previousFrameDescription}"`
+      : "";
+
     const systemPrompt = `You are an AI assistant analyzing a user's screen to verify they've completed a step.
-Keep responses concise. Focus on whether the success criteria is met and what action to take next.${schemaInstruction}${urlVerificationInstruction}`;
+Keep responses concise. Focus on whether the success criteria is met and what action to take next.${schemaInstruction}${urlVerificationInstruction}${continuityInstruction}`;
 
     const expectedDomainLine = expectedDomain ? `\nExpected domain: "${expectedDomain}"` : "";
     const urlVerifiedField = expectedDomain ? `\n  "urlVerified": boolean (true if address bar shows a URL on the expected domain),` : "";
+    const continuityField = previousFrameDescription ? `\n  "visualContinuity": boolean,` : "";
+    const descriptionField = `\n  "description": "brief description of what's visible on screen",`;
 
     const userPrompt = `Instruction: "${currentInstruction}"
 Success criteria: "${successCriteria}"${schemaFields}${expectedDomainLine}
 
 Analyze this screenshot. Respond in JSON only:
-{
+{${descriptionField}
   "matchesSuccessCriteria": boolean,
   "confidence": number (0.0-1.0),
-  "suggestedAction": "string or null (only if criteria NOT met — say what to do, not what you see)",${urlVerifiedField}
+  "suggestedAction": "string or null (only if criteria NOT met — say what to do, not what you see)",${urlVerifiedField}${continuityField}
   "extractedData": [{"label": "<exact field name from schema>", "value": "string"}]
 }`;
 
@@ -164,7 +172,7 @@ Analyze this screenshot. Respond in JSON only:
 
       // Validate and sanitize result
       return {
-        description: "",
+        description: result.description || "",
         detectedElements: [],
         matchesSuccessCriteria: Boolean(result.matchesSuccessCriteria),
         confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
@@ -173,6 +181,9 @@ Analyze this screenshot. Respond in JSON only:
           ? result.extractedData.filter((d: any) => d.label && d.value)
           : undefined,
         urlVerified: expectedDomain ? Boolean(result.urlVerified) : undefined,
+        visualContinuity: previousFrameDescription
+          ? Boolean(result.visualContinuity)
+          : undefined,
       };
     } catch (error) {
       console.error("[Azure OpenAI Vision] Analysis error:", error);

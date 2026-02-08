@@ -34,7 +34,8 @@ class AnthropicVisionProvider implements VisionProvider {
     currentInstruction: string,
     successCriteria: string,
     extractionSchema?: ExtractionField[],
-    expectedDomain?: string
+    expectedDomain?: string,
+    previousFrameDescription?: string
   ): Promise<FrameAnalysisResult> {
     // Strip data URL prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -51,6 +52,11 @@ class AnthropicVisionProvider implements VisionProvider {
       ? `\nWhen an expectedDomain is provided, you MUST verify the browser address bar shows a URL on that domain. If the URL bar is not visible, shows a different domain, localhost, file://, or any non-matching URL, set matchesSuccessCriteria to false regardless of other criteria.`
       : "";
 
+    const continuityInstruction = previousFrameDescription
+      ? `\nVISUAL CONTINUITY CHECK: Compare this frame against the previous frame description below. Check that the OS-level UI chrome (taskbar/dock, notification bar, window decorations, browser frame) is consistent. Set "visualContinuity" to true if the UI chrome is consistent (content changes are expected), or false if the chrome appears to have changed abruptly (different OS, different resolution, missing/changed taskbar, etc.).
+Previous frame: "${previousFrameDescription}"`
+      : "";
+
     const systemPrompt = `You are an AI assistant helping a user complete a task by analyzing their screen.
 Your job is to:
 1. Describe what you see on screen
@@ -60,10 +66,11 @@ Your job is to:
 5. If the user seems stuck, provide helpful guidance
 
 Be concise and helpful. Focus on actionable observations.
-CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.${urlVerificationInstruction}`;
+CRITICAL: When the success criteria asks you to extract or verify specific data (usernames, handles, numbers, metrics), you MUST include them in the extractedData array.${urlVerificationInstruction}${continuityInstruction}`;
 
     const expectedDomainLine = expectedDomain ? `\nExpected domain: "${expectedDomain}"` : "";
     const urlVerifiedField = expectedDomain ? `\n  "urlVerified": boolean,` : "";
+    const continuityField = previousFrameDescription ? `\n  "visualContinuity": boolean,` : "";
 
     const userPrompt = `Current instruction for the user: "${currentInstruction}"
 
@@ -75,7 +82,7 @@ Please analyze this screenshot and provide:
 3. Whether the success criteria appears to be met (true/false)
 4. Your confidence level (0.0 to 1.0)
 5. If the criteria is NOT met, a suggested action for the user
-6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs${expectedDomain ? "\n7. Whether the browser URL bar shows the expected domain" : ""}
+6. Any data extracted from the screen (handles, numbers, metrics, etc.) as label/value pairs${expectedDomain ? "\n7. Whether the browser URL bar shows the expected domain" : ""}${previousFrameDescription ? "\n" + (expectedDomain ? "8" : "7") + ". Whether the UI chrome is consistent with the previous frame (visual continuity)" : ""}
 
 Respond in JSON format:
 {
@@ -83,7 +90,7 @@ Respond in JSON format:
   "detectedElements": ["string"],
   "matchesSuccessCriteria": boolean,
   "confidence": number,
-  "suggestedAction": "string or null",${urlVerifiedField}
+  "suggestedAction": "string or null",${urlVerifiedField}${continuityField}
   "extractedData": [{"label": "string", "value": "string"}]
 }`;
 
@@ -140,6 +147,9 @@ Respond in JSON format:
           ? result.extractedData.filter((d: any) => d.label && d.value)
           : undefined,
         urlVerified: expectedDomain ? Boolean(result.urlVerified) : undefined,
+        visualContinuity: previousFrameDescription
+          ? Boolean(result.visualContinuity)
+          : undefined,
       };
     } catch (error) {
       console.error("[Anthropic Vision] Analysis error:", error);

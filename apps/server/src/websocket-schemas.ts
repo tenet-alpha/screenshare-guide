@@ -7,6 +7,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("frame"),
     imageData: z.string().max(MAX_FRAME_SIZE, "Frame too large"),
+    /** Client-computed perceptual hash for dedup and similarity analysis */
+    frameHash: z.string().max(32).optional(),
   }),
   z.object({
     type: z.literal("linkClicked"),

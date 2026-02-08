@@ -53,6 +53,15 @@ export interface SessionState {
     sessionStartedAt: number;
     displaySurface: string | null;
     clientPlatform: string;
+    // Temporal consistency tracking
+    frameTimestamps: number[];
+    // Frame similarity tracking
+    frameHashes: string[];
+    // Visual continuity tracking (AI-assessed per frame)
+    visualContinuityConsistent: number;
+    visualContinuityDiscontinuous: number;
+    /** Description of previous frame for AI continuity comparison */
+    previousFrameDescription: string | null;
   };
 }
 

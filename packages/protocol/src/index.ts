@@ -34,4 +34,11 @@ export {
   CHALLENGE_PROBABILITY,
 } from "./constants";
 
-export { type TrustSignals, type TrustResult, computeTrustScore } from "./trust";
+export {
+  type TrustSignals,
+  type TrustResult,
+  type TemporalConsistencyResult,
+  type FrameSimilarityResult,
+  type VisualContinuityResult,
+  computeTrustScore,
+} from "./trust";

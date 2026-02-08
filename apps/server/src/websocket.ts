@@ -16,7 +16,12 @@ import {
   CHALLENGE_PROBABILITY,
   computeTrustScore,
 } from "@screenshare-guide/protocol";
-import type { TrustSignals } from "@screenshare-guide/protocol";
+import type {
+  TrustSignals,
+  TemporalConsistencyResult,
+  FrameSimilarityResult,
+  VisualContinuityResult,
+} from "@screenshare-guide/protocol";
 import { nanoid } from "nanoid";
 import {
   trackVisionAnalysis,
@@ -45,6 +50,150 @@ function checkWsRateLimit(token: string): boolean {
 
   entry.count++;
   return entry.count <= WS_RATE_LIMIT_MAX;
+}
+
+// ── Anti-forgery signal computation ─────────────────────────────────
+
+/**
+ * Compute temporal consistency from recorded frame timestamps.
+ * Detects bot-like uniform timing and suspiciously fast intervals.
+ */
+function computeTemporalConsistency(
+  timestamps: number[],
+  frameHashes: string[]
+): TemporalConsistencyResult | null {
+  if (timestamps.length < 3) return null;
+
+  const intervals: number[] = [];
+  for (let i = 1; i < timestamps.length; i++) {
+    intervals.push(timestamps[i] - timestamps[i - 1]);
+  }
+
+  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const variance =
+    intervals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / intervals.length;
+  const stddev = Math.sqrt(variance);
+  const cv = mean > 0 ? stddev / mean : 0;
+
+  // Count suspiciously fast intervals:
+  // An interval < 200ms where the frame hash also changed implies content
+  // was swapped faster than a human screen recording would produce.
+  let suspiciouslyFastCount = 0;
+  for (let i = 0; i < intervals.length; i++) {
+    if (intervals[i] < 200) {
+      // Check if frame hash changed (if we have hashes)
+      if (frameHashes.length > i + 1 && frameHashes[i] !== frameHashes[i + 1]) {
+        suspiciouslyFastCount++;
+      }
+    }
+  }
+
+  return {
+    meanIntervalMs: Math.round(mean),
+    stddevMs: Math.round(stddev),
+    coefficientOfVariation: Math.round(cv * 1000) / 1000,
+    suspiciouslyFastCount,
+    totalIntervals: intervals.length,
+  };
+}
+
+/**
+ * Compute frame similarity metrics from client-provided frame hashes.
+ * Detects replay attacks (same frames submitted repeatedly) and
+ * splicing (abrupt hash changes without transition).
+ */
+function computeFrameSimilarity(
+  frameHashes: string[]
+): FrameSimilarityResult | null {
+  if (frameHashes.length < 3) return null;
+
+  let duplicateHashCount = 0;
+  let abruptChangeCount = 0;
+  const uniqueHashes = new Set(frameHashes);
+
+  for (let i = 1; i < frameHashes.length; i++) {
+    if (frameHashes[i] === frameHashes[i - 1]) {
+      duplicateHashCount++;
+    }
+    // "Abrupt change" = completely different hash with no intermediate transition.
+    // We detect this by checking if 3+ consecutive frames all have unique hashes
+    // that don't repeat nearby — a sign of spliced/stitched content.
+    // Simple heuristic: if both neighboring pairs are different, it's an abrupt transition.
+    if (
+      i >= 2 &&
+      frameHashes[i] !== frameHashes[i - 1] &&
+      frameHashes[i - 1] !== frameHashes[i - 2] &&
+      frameHashes[i] !== frameHashes[i - 2]
+    ) {
+      abruptChangeCount++;
+    }
+  }
+
+  return {
+    duplicateHashCount,
+    abruptChangeCount,
+    totalTransitions: frameHashes.length - 1,
+    uniqueHashRatio:
+      Math.round((uniqueHashes.size / frameHashes.length) * 100) / 100,
+  };
+}
+
+/**
+ * Build visual continuity result from tracked frame-level signals.
+ */
+function buildVisualContinuity(
+  consistent: number,
+  discontinuous: number
+): VisualContinuityResult | null {
+  const total = consistent + discontinuous;
+  if (total < 1) return null;
+  return {
+    consistentFrames: consistent,
+    discontinuousFrames: discontinuous,
+    totalChecked: total,
+  };
+}
+
+/**
+ * Build complete TrustSignals from session state.
+ * Centralized to avoid duplication across completion paths.
+ */
+function buildTrustSignals(state: SessionState): TrustSignals {
+  return {
+    urlVerified:
+      state.trustSignals.urlVerifiedCount > 0 &&
+      state.trustSignals.urlNotVerifiedCount === 0,
+    urlVerifiedRatio:
+      state.trustSignals.framesAnalyzed > 0
+        ? state.trustSignals.urlVerifiedCount /
+          state.trustSignals.framesAnalyzed
+        : 0,
+    challengePassed:
+      state.challengeResults.length > 0
+        ? state.challengeResults.every((r) => r.passed)
+        : null,
+    challengeResponseMs:
+      state.challengeResults.length > 0
+        ? state.challengeResults[state.challengeResults.length - 1]
+            .responseTimeMs
+        : null,
+    sessionDurationMs: Date.now() - state.trustSignals.sessionStartedAt,
+    framesAnalyzed: state.trustSignals.framesAnalyzed,
+    displaySurface: state.trustSignals.displaySurface,
+    clientPlatform: state.trustSignals.clientPlatform,
+    // New signals
+    temporalConsistency: computeTemporalConsistency(
+      state.trustSignals.frameTimestamps,
+      state.trustSignals.frameHashes
+    ),
+    frameSimilarity: computeFrameSimilarity(
+      state.trustSignals.frameHashes
+    ),
+    visualContinuity: buildVisualContinuity(
+      state.trustSignals.visualContinuityConsistent,
+      state.trustSignals.visualContinuityDiscontinuous
+    ),
+  };
 }
 
 export const websocketHandler = new Elysia()
@@ -173,6 +322,11 @@ export const websocketHandler = new Elysia()
             sessionStartedAt: Date.now(),
             displaySurface: null,
             clientPlatform: "web",
+            frameTimestamps: [],
+            frameHashes: [],
+            visualContinuityConsistent: 0,
+            visualContinuityDiscontinuous: 0,
+            previousFrameDescription: null,
           },
         };
 
@@ -252,7 +406,7 @@ export const websocketHandler = new Elysia()
         // Handle different message types
         switch (data.type) {
           case "frame":
-            await handleFrame(ws, state, data.imageData, token);
+            await handleFrame(ws, state, data.imageData, token, data.frameHash);
             break;
 
           case "linkClicked":
@@ -411,7 +565,8 @@ async function handleFrame(
   ws: any,
   state: SessionState,
   imageData: string,
-  token: string
+  token: string,
+  frameHash?: string
 ) {
   // Debounce analysis
   const now = Date.now();
@@ -441,6 +596,21 @@ async function handleFrame(
 
   ws.send(JSON.stringify({ type: "analyzing" }));
 
+  // ── Track temporal consistency (frame timing) ─────────────────
+  state.trustSignals.frameTimestamps.push(now);
+  // Cap array to last 100 entries to bound memory
+  if (state.trustSignals.frameTimestamps.length > 100) {
+    state.trustSignals.frameTimestamps = state.trustSignals.frameTimestamps.slice(-100);
+  }
+
+  // ── Track frame similarity (client-provided hashes) ───────────
+  if (frameHash) {
+    state.trustSignals.frameHashes.push(frameHash);
+    if (state.trustSignals.frameHashes.length > 100) {
+      state.trustSignals.frameHashes = state.trustSignals.frameHashes.slice(-100);
+    }
+  }
+
   const startTime = Date.now();
   try {
     // If a challenge is active, analyze against the challenge criteria instead
@@ -459,7 +629,9 @@ async function handleFrame(
       analyzeInstruction,
       analyzeCriteria,
       schema,
-      currentStepData.expectedDomain
+      currentStepData.expectedDomain,
+      // Pass previous frame description for visual continuity checking (skip on first frame)
+      state.trustSignals.previousFrameDescription ?? undefined
     );
 
     const analysisDuration = Date.now() - startTime;
@@ -477,6 +649,17 @@ async function handleFrame(
       state.trustSignals.urlVerifiedCount++;
     } else if (currentStepData.expectedDomain) {
       state.trustSignals.urlNotVerifiedCount++;
+    }
+
+    // Track visual continuity
+    if (analysis.visualContinuity === true) {
+      state.trustSignals.visualContinuityConsistent++;
+    } else if (analysis.visualContinuity === false) {
+      state.trustSignals.visualContinuityDiscontinuous++;
+    }
+    // Store frame description as baseline for next frame's continuity check
+    if (analysis.description) {
+      state.trustSignals.previousFrameDescription = analysis.description;
     }
 
     // Filter extracted data to only include fields from known schemas
@@ -619,19 +802,7 @@ async function handleFrame(
           // Session complete — compute trust score and store extracted data in session metadata
           state.status = "completed";
 
-          const trustSignals: TrustSignals = {
-            urlVerified: state.trustSignals.urlVerifiedCount > 0 && state.trustSignals.urlNotVerifiedCount === 0,
-            urlVerifiedRatio: state.trustSignals.framesAnalyzed > 0
-              ? state.trustSignals.urlVerifiedCount / state.trustSignals.framesAnalyzed : 0,
-            challengePassed: state.challengeResults.length > 0
-              ? state.challengeResults.every((r) => r.passed) : null,
-            challengeResponseMs: state.challengeResults.length > 0
-              ? state.challengeResults[state.challengeResults.length - 1].responseTimeMs : null,
-            sessionDurationMs: Date.now() - state.trustSignals.sessionStartedAt,
-            framesAnalyzed: state.trustSignals.framesAnalyzed,
-            displaySurface: state.trustSignals.displaySurface,
-            clientPlatform: state.trustSignals.clientPlatform,
-          };
+          const trustSignals = buildTrustSignals(state);
           const trustResult = computeTrustScore(trustSignals);
 
           const metadataJson = JSON.stringify({
@@ -729,19 +900,7 @@ async function handleFrame(
           if (state.currentStep >= state.totalSteps) {
             state.status = "completed";
             // Build trust score
-            const trustSignals: TrustSignals = {
-              urlVerified: state.trustSignals.urlVerifiedCount > 0 && state.trustSignals.urlNotVerifiedCount === 0,
-              urlVerifiedRatio: state.trustSignals.framesAnalyzed > 0
-                ? state.trustSignals.urlVerifiedCount / state.trustSignals.framesAnalyzed : 0,
-              challengePassed: state.challengeResults.length > 0
-                ? state.challengeResults.every((r) => r.passed) : null,
-              challengeResponseMs: state.challengeResults.length > 0
-                ? state.challengeResults[state.challengeResults.length - 1].responseTimeMs : null,
-              sessionDurationMs: Date.now() - state.trustSignals.sessionStartedAt,
-              framesAnalyzed: state.trustSignals.framesAnalyzed,
-              displaySurface: state.trustSignals.displaySurface,
-              clientPlatform: state.trustSignals.clientPlatform,
-            };
+            const trustSignals = buildTrustSignals(state);
             const trustResult = computeTrustScore(trustSignals);
 
             const metadataJson = JSON.stringify({
