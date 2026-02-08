@@ -13,10 +13,11 @@ export {
 } from "./messages";
 
 export {
-  STEP_LINKS,
-  STEPS_REQUIRING_LINK_CLICK,
-  STEP_EXTRACTION_SCHEMAS,
+  type ProofStep,
+  type ProofTemplate,
   INSTAGRAM_PROOF_TEMPLATE,
+  PROOF_TEMPLATES,
+  getAllExtractionFields,
 } from "./steps";
 
 export {

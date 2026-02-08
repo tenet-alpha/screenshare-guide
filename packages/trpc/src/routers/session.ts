@@ -143,29 +143,38 @@ function generateUploadSasUrl(
   }
 }
 
-import { INSTAGRAM_PROOF_TEMPLATE } from "@screenshare-guide/protocol";
+import { INSTAGRAM_PROOF_TEMPLATE, PROOF_TEMPLATES } from "@screenshare-guide/protocol";
 
 export const sessionRouter = router({
   /**
-   * Create a proof session for Instagram audience verification.
-   * Finds or creates the hardcoded template, then creates a session with 24h expiry.
+   * Create a proof session for audience verification.
+   * Accepts an optional platform (default "instagram").
+   * Finds or creates the template, then creates a session with 24h expiry.
    */
-  createProof: publicProcedure.mutation(async ({ ctx }) => {
-    // Find or create the hardcoded template
+  createProof: publicProcedure
+    .input(z.object({ platform: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+    const platform = input?.platform ?? "instagram";
+    const proofTemplate = PROOF_TEMPLATES[platform];
+    if (!proofTemplate) {
+      throw new Error(`Unknown platform: ${platform}`);
+    }
+
+    // Find or create the template
     let template = await ctx.db
       .selectFrom("templates")
       .selectAll()
-      .where("name", "=", INSTAGRAM_PROOF_TEMPLATE.name)
+      .where("name", "=", proofTemplate.name)
       .executeTakeFirst();
 
-    const expectedSteps = JSON.stringify(INSTAGRAM_PROOF_TEMPLATE.steps);
+    const expectedSteps = JSON.stringify(proofTemplate.steps);
 
     if (!template) {
       template = await ctx.db
         .insertInto("templates")
         .values({
-          name: INSTAGRAM_PROOF_TEMPLATE.name,
-          description: INSTAGRAM_PROOF_TEMPLATE.description,
+          name: proofTemplate.name,
+          description: proofTemplate.description,
           steps: expectedSteps,
         })
         .returningAll()

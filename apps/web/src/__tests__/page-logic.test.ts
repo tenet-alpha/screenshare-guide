@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { STEP_LINKS, FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
-import type { ExtractedDataItem } from "@screenshare-guide/protocol";
+import { INSTAGRAM_PROOF_TEMPLATE, FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem, ProofStep } from "@screenshare-guide/protocol";
 
 /**
  * Frontend logic unit tests.
@@ -16,13 +16,7 @@ import type { ExtractedDataItem } from "@screenshare-guide/protocol";
 
 // ── Template step normalization (mirrors page.tsx onSuccess) ────────
 
-interface TemplateStep {
-  instruction: string;
-  successCriteria: string;
-  hints?: string[];
-}
-
-function normalizeSteps(raw: unknown): TemplateStep[] {
+function normalizeSteps(raw: unknown): ProofStep[] {
   try {
     if (Array.isArray(raw)) return raw;
     if (typeof raw === "string") return JSON.parse(raw);
@@ -32,7 +26,12 @@ function normalizeSteps(raw: unknown): TemplateStep[] {
   }
 }
 
-// ── Step links imported from @screenshare-guide/protocol ────────────
+// ── Step links from template ────────────────────────────────────────
+
+const STEP_LINKS = INSTAGRAM_PROOF_TEMPLATE.steps.reduce<Record<number, { url: string; label: string }>>((acc, step, i) => {
+  if (step.link) acc[i] = step.link;
+  return acc;
+}, {});
 
 // ── Accumulated data dedup (mirrors accumulateData in component) ────
 

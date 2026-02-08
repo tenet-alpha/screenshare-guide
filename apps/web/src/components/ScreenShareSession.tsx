@@ -4,14 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { AudioPlayer } from "./AudioPlayer";
 import { trpc } from "@/lib/trpc";
-import { STEP_LINKS, FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
-import type { ExtractedDataItem } from "@screenshare-guide/protocol";
-
-interface TemplateStep {
-  instruction: string;
-  successCriteria: string;
-  hints?: string[];
-}
+import { FRAME_STALENESS_MS } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem, ProofStep } from "@screenshare-guide/protocol";
 
 interface Props {
   token: string;
@@ -19,7 +13,7 @@ interface Props {
   template: {
     id: string;
     name: string;
-    steps: TemplateStep[];
+    steps: ProofStep[];
   };
   initialStep: number;
 }
@@ -87,7 +81,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   const linkClickedStepsRef = useRef(linkClickedSteps);
 
   // Defensive: ensure steps is always a valid array
-  const steps: TemplateStep[] = (() => {
+  const steps: ProofStep[] = (() => {
     try {
       if (Array.isArray(template.steps)) return template.steps;
       if (typeof template.steps === "string") return JSON.parse(template.steps);
@@ -209,7 +203,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
   }, [sessionId, getUploadUrl, updateSession]);
 
   function handleStepLinkClick(stepIndex: number) {
-    const link = STEP_LINKS[stepIndex];
+    const link = steps[stepIndex]?.link;
     if (!link) return;
     window.open(link.url, "_blank");
     // Track client-side
@@ -229,7 +223,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
     if (!pipDoc) return;
 
     const safeStep = Math.min(currentStep, totalSteps - 1);
-    const stepLink = STEP_LINKS[safeStep];
+    const stepLink = steps[safeStep]?.link;
 
     // Build completed steps markers
     const stepsHtml = Array.from({ length: totalSteps }, (_, i) => {
@@ -530,7 +524,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       // Improvement #3: Pause frame analysis until link is clicked for steps with links
       // Use refs to avoid stale closure values inside setInterval
       const stepForCheck = currentStepRef.current;
-      if (STEP_LINKS[stepForCheck] && !linkClickedStepsRef.current.has(stepForCheck)) {
+      if (steps[stepForCheck]?.link && !linkClickedStepsRef.current.has(stepForCheck)) {
         return; // Don't send frames until the user clicks the link
       }
 
@@ -635,12 +629,12 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
             <p className="text-sm font-medium text-white truncate flex-1">
               {instruction || steps[safeStep]?.instruction || "Loading..."}
             </p>
-            {STEP_LINKS[safeStep] && (
+            {steps[safeStep]?.link && (
               <button
                 onClick={() => handleStepLinkClick(safeStep)}
                 className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors shrink-0"
               >
-                {STEP_LINKS[safeStep].label}
+                {steps[safeStep].link!.label}
               </button>
             )}
             {isAnalyzing && (
@@ -660,7 +654,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
       )}>
         <div className="max-w-3xl mx-auto flex justify-between items-center">
           <h1 className="text-xl font-semibold bg-gradient-to-r from-purple-600 to-pink-500 bg-clip-text text-transparent">
-            Instagram Audience Proof
+            {template.name}
           </h1>
           <div className="flex items-center gap-2">
             {Array.from({ length: totalSteps }, (_, i) => (
@@ -700,7 +694,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-gray-100">Verify Your Instagram Audience</h2>
+            <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-gray-100">{template.name}</h2>
             <p className="text-gray-500 dark:text-gray-400 mb-8">
               Quick, secure verification of your Instagram reach and audience metrics.
             </p>
@@ -752,16 +746,16 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                     {instruction || steps[safeStep]?.instruction || "Loading..."}
                   </p>
                   {/* Step link */}
-                  {STEP_LINKS[safeStep] && (
+                  {steps[safeStep]?.link && (
                     <button
                       onClick={() => handleStepLinkClick(safeStep)}
                       className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
                     >
-                      {STEP_LINKS[safeStep].label}
+                      {steps[safeStep].link!.label}
                     </button>
                   )}
                   {/* Improvement #3: Show waiting message if link not clicked yet */}
-                  {STEP_LINKS[safeStep] && !linkClickedSteps.has(safeStep) && (
+                  {steps[safeStep]?.link && !linkClickedSteps.has(safeStep) && (
                     <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
                       👆 Click the link above to open the page, then analysis will begin.
                     </p>

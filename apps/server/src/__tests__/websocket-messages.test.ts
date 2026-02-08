@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-  STEP_EXTRACTION_SCHEMAS,
   ANALYSIS_DEBOUNCE_MS,
   CONSENSUS_THRESHOLD,
   WS_RATE_LIMIT_WINDOW,
@@ -8,7 +7,7 @@ import {
   TTS_QUIET_PERIOD_MS,
   TTS_STUCK_TIMEOUT_MS,
 } from "@screenshare-guide/protocol";
-import type { ExtractedDataItem } from "@screenshare-guide/protocol";
+import type { ExtractedDataItem, ProofStep } from "@screenshare-guide/protocol";
 
 /**
  * WebSocket message handling unit tests.
@@ -28,11 +27,7 @@ interface SessionState {
   templateId: string;
   currentStep: number;
   totalSteps: number;
-  steps: Array<{
-    instruction: string;
-    successCriteria: string;
-    hints?: string[];
-  }>;
+  steps: ProofStep[];
   status: "waiting" | "analyzing" | "completed";
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
@@ -88,7 +83,7 @@ function accumulateExtractedData(
 }
 
 function hasAllRequiredFields(state: SessionState): boolean {
-  const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
+  const schema = state.steps[state.currentStep]?.extractionSchema;
   if (!schema) return true;
   const labels = state.allExtractedData.map((d) => d.label);
   return schema
@@ -164,10 +159,24 @@ function createState(
       {
         instruction: "Open Meta Business Suite and verify your Instagram handle",
         successCriteria: "MBS home page visible with handle",
+        link: { url: "https://business.facebook.com/latest/home", label: "Open Meta Business Suite →" },
+        requiresLinkClick: true,
+        extractionSchema: [
+          { field: "Handle", description: "The Instagram handle/username (e.g. @username)", required: true },
+        ],
+        hints: [],
       },
       {
         instruction: "Open Account Insights and capture your audience metrics",
         successCriteria: "All metrics found",
+        link: { url: "https://business.facebook.com/latest/insights/", label: "Open Account Insights →" },
+        requiresLinkClick: true,
+        extractionSchema: [
+          { field: "Reach", description: "Total reach number", required: true },
+          { field: "Non-followers reached", description: "Number of non-followers reached", required: true },
+          { field: "Followers reached", description: "Number of followers reached", required: true },
+        ],
+        hints: [],
       },
     ],
     status: "waiting",

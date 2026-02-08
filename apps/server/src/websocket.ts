@@ -3,8 +3,6 @@ import { analyzeFrame, generateSpeech } from "./ai";
 import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
 import {
-  STEPS_REQUIRING_LINK_CLICK,
-  STEP_EXTRACTION_SCHEMAS,
   CONSENSUS_THRESHOLD,
   ANALYSIS_DEBOUNCE_MS,
   SUCCESS_THRESHOLD,
@@ -13,6 +11,7 @@ import {
   TTS_QUIET_PERIOD_MS,
   TTS_STUCK_TIMEOUT_MS,
 } from "@screenshare-guide/protocol";
+import type { ProofStep } from "@screenshare-guide/protocol";
 
 // Session state machine
 interface SessionState {
@@ -20,7 +19,7 @@ interface SessionState {
   templateId: string;
   currentStep: number;
   totalSteps: number;
-  steps: Array<{ instruction: string; successCriteria: string; hints?: string[] }>;
+  steps: ProofStep[];
   status: "waiting" | "analyzing" | "completed";
   lastAnalysisTime: number;
   consecutiveSuccesses: number;
@@ -317,7 +316,7 @@ function accumulateExtractedData(
  * Check if all required fields from the current step's extraction schema are present.
  */
 function hasAllRequiredFields(state: SessionState): boolean {
-  const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
+  const schema = state.steps[state.currentStep]?.extractionSchema;
   if (!schema) return true; // no schema = no extraction required
   const labels = state.allExtractedData.map((d) => d.label);
   return schema
@@ -345,15 +344,15 @@ async function handleFrame(
     return;
   }
 
+  const currentStepData = state.steps[state.currentStep];
+
   // Skip analysis if this step requires a link click and we haven't received one
-  if (STEPS_REQUIRING_LINK_CLICK.has(state.currentStep) && !state.linkClicked[state.currentStep]) {
+  if (currentStepData?.requiresLinkClick && !state.linkClicked[state.currentStep]) {
     return;
   }
 
   state.status = "analyzing";
   state.lastAnalysisTime = now;
-
-  const currentStepData = state.steps[state.currentStep];
   if (!currentStepData) {
     state.status = "completed";
     ws.send(JSON.stringify({ type: "completed", message: "All steps completed!", extractedData: state.allExtractedData }));
@@ -365,7 +364,7 @@ async function handleFrame(
   const startTime = Date.now();
   try {
     // Analyze the frame with AI provider, passing extraction schema if defined
-    const schema = STEP_EXTRACTION_SCHEMAS[state.currentStep];
+    const schema = currentStepData.extractionSchema;
     const analysis = await analyzeFrame(
       imageData,
       currentStepData.instruction,
@@ -377,7 +376,7 @@ async function handleFrame(
 
     // Filter extracted data to only include fields from known schemas
     const allKnownFields = new Set(
-      Object.values(STEP_EXTRACTION_SCHEMAS).flatMap((s) => s.map((f) => f.field))
+      state.steps.flatMap((s) => (s.extractionSchema || []).map((f) => f.field))
     );
     const validData = (analysis.extractedData || []).filter(
       (d) => d.label && d.value && allKnownFields.has(d.label)

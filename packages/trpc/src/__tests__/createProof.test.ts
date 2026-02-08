@@ -229,6 +229,40 @@ describe("createProof endpoint", () => {
       expect(result.template.steps[1].instruction).toContain("Insights");
       expect(result.template.steps[1].instruction.toLowerCase()).toContain("metrics");
     });
+
+    it("each step has link, extractionSchema, and requiresLinkClick", async () => {
+      const db = createMockDb({ existingTemplate: null });
+      const result = await runCreateProof(db);
+
+      for (const step of result.template.steps) {
+        expect(step).toHaveProperty("link");
+        expect(step.link).toHaveProperty("url");
+        expect(step.link).toHaveProperty("label");
+        expect(step).toHaveProperty("extractionSchema");
+        expect(Array.isArray(step.extractionSchema)).toBe(true);
+        expect(step.extractionSchema.length).toBeGreaterThan(0);
+        expect(step).toHaveProperty("requiresLinkClick");
+        expect(step.requiresLinkClick).toBe(true);
+      }
+    });
+
+    it("step 1 extraction schema has Handle field", async () => {
+      const db = createMockDb({ existingTemplate: null });
+      const result = await runCreateProof(db);
+
+      const fields = result.template.steps[0].extractionSchema.map((f: any) => f.field);
+      expect(fields).toContain("Handle");
+    });
+
+    it("step 2 extraction schema has Reach, Non-followers reached, Followers reached", async () => {
+      const db = createMockDb({ existingTemplate: null });
+      const result = await runCreateProof(db);
+
+      const fields = result.template.steps[1].extractionSchema.map((f: any) => f.field);
+      expect(fields).toContain("Reach");
+      expect(fields).toContain("Non-followers reached");
+      expect(fields).toContain("Followers reached");
+    });
   });
 
   describe("template reuse", () => {
