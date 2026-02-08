@@ -39,6 +39,24 @@ variable "pg_admin_username" {
 
 # pg_admin_password is generated via random_password resource — no variable needed
 
+variable "database_mode" {
+  description = "Whether to create a new PostgreSQL instance or use an existing external one"
+  type        = string
+  default     = "create"
+
+  validation {
+    condition     = contains(["create", "existing"], var.database_mode)
+    error_message = "Must be 'create' or 'existing'."
+  }
+}
+
+variable "existing_database_url" {
+  description = "Full DATABASE_URL for external PostgreSQL (required when database_mode = 'existing')"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # ─── Azure OpenAI ────────────────────────────────────────────────────────────
 
 variable "azure_openai_endpoint" {

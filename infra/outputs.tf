@@ -30,11 +30,11 @@ output "app_service_principal_id" {
 }
 
 output "postgresql_fqdn" {
-  value = azurerm_postgresql_flexible_server.main.fqdn
+  value = var.database_mode == "create" ? azurerm_postgresql_flexible_server.main[0].fqdn : "(external database)"
 }
 
 output "postgresql_database_url" {
-  value     = "postgresql://${var.pg_admin_username}:${random_password.pg_admin.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
+  value     = local.database_url
   sensitive = true
 }
 

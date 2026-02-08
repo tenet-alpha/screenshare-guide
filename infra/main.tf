@@ -34,6 +34,13 @@ locals {
     ? azurerm_application_insights.main[0].connection_string
     : var.existing_appinsights_connection_string
   )
+
+  # Database URL: resolve from either created PG or external
+  database_url = (
+    var.database_mode == "create"
+    ? "postgresql://${var.pg_admin_username}:${random_password.pg_admin[0].result}@${azurerm_postgresql_flexible_server.main[0].fqdn}:5432/screenshare?sslmode=require"
+    : var.existing_database_url
+  )
 }
 
 # ─── Random suffix for globally unique names ────────────────────────────────
@@ -43,8 +50,9 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
-# ─── Generated PostgreSQL admin password ────────────────────────────────────
+# ─── Generated PostgreSQL admin password (only when creating DB) ─────────────
 resource "random_password" "pg_admin" {
+  count            = var.database_mode == "create" ? 1 : 0
   length           = 32
   special          = true
   override_special = "!#$%&*()-_=+[]{}|:?,."
@@ -151,7 +159,7 @@ resource "azurerm_linux_web_app" "main" {
     "API_KEY" = var.api_key
 
     # ── Infra secrets (from Terraform state) ──
-    "DATABASE_URL"                    = "postgresql://${var.pg_admin_username}:${random_password.pg_admin.result}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
+    "DATABASE_URL"                    = local.database_url
     "AZURE_STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
 
     # ── API Key secrets (Key Vault references) ──
@@ -164,13 +172,15 @@ resource "azurerm_linux_web_app" "main" {
 }
 
 # ─── PostgreSQL Flexible Server (Burstable B1ms ~$12/mo) ───────────────────
+# Only created when database_mode = "create"; for prod, use existing_database_url
 resource "azurerm_postgresql_flexible_server" "main" {
+  count                  = var.database_mode == "create" ? 1 : 0
   name                   = "pg-${var.project}-${var.environment}-${random_string.suffix.result}"
   resource_group_name    = azurerm_resource_group.main.name
   location               = var.pg_location
   version                = "16"
   administrator_login    = var.pg_admin_username
-  administrator_password = random_password.pg_admin.result
+  administrator_password = random_password.pg_admin[0].result
   storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
   zone                   = "1"
@@ -180,16 +190,18 @@ resource "azurerm_postgresql_flexible_server" "main" {
 
 # Allow Azure services to connect to Postgres
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
+  count            = var.database_mode == "create" ? 1 : 0
   name             = "AllowAzureServices"
-  server_id        = azurerm_postgresql_flexible_server.main.id
+  server_id        = azurerm_postgresql_flexible_server.main[0].id
   start_ip_address = "0.0.0.0"
   end_ip_address   = "0.0.0.0"
 }
 
 # Create the screenshare database
 resource "azurerm_postgresql_flexible_server_database" "main" {
+  count     = var.database_mode == "create" ? 1 : 0
   name      = "screenshare"
-  server_id = azurerm_postgresql_flexible_server.main.id
+  server_id = azurerm_postgresql_flexible_server.main[0].id
   charset   = "UTF8"
   collation = "en_US.utf8"
 }
@@ -296,10 +308,11 @@ resource "azurerm_key_vault_secret" "secrets" {
   depends_on = [azurerm_role_assignment.kv_admin]
 }
 
-# Store the generated PG password in Key Vault (Terraform-managed, not manual)
+# Store the generated PG password in Key Vault (only when we create the DB)
 resource "azurerm_key_vault_secret" "pg_admin_password" {
+  count        = var.database_mode == "create" ? 1 : 0
   name         = "PG-ADMIN-PASSWORD"
-  value        = random_password.pg_admin.result
+  value        = random_password.pg_admin[0].result
   key_vault_id = azurerm_key_vault.main.id
 
   depends_on = [azurerm_role_assignment.kv_admin]
