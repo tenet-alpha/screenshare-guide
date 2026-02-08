@@ -3,11 +3,15 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { ScreenShareSession } from "@/components/ScreenShareSession";
+import { INSTAGRAM_PROOF_TEMPLATE } from "@screenshare-guide/protocol";
+
+// Default template shown on the pre-session landing page
+const defaultTemplate = INSTAGRAM_PROOF_TEMPLATE;
 
 interface SessionData {
   token: string;
   sessionId: string;
-  template: { id: string; name: string; steps: any[] };
+  template: { id: string; name: string; description?: string; completionMessage?: string; steps: any[] };
 }
 
 export default function HomePage() {
@@ -44,6 +48,8 @@ export default function HomePage() {
           template: {
             id: data.template.id,
             name: data.template.name,
+            description: (data.template as any).description,
+            completionMessage: (data.template as any).completionMessage,
             steps,
           },
         });
@@ -85,7 +91,7 @@ export default function HomePage() {
           Prove Your Instagram Audience
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-10">
-          Verify your Instagram reach and engagement in 3 quick steps
+          Verify your Instagram reach and engagement in {defaultTemplate.steps.length} quick steps
         </p>
 
         {/* Start Button */}
@@ -108,7 +114,7 @@ export default function HomePage() {
         </button>
 
         <p className="text-sm text-gray-400 dark:text-gray-500 mt-6">
-          You'll share your screen and follow 3 guided steps to verify your metrics
+          You'll share your screen and follow {defaultTemplate.steps.length} guided steps to verify your metrics
         </p>
 
         {/* Error */}

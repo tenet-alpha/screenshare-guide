@@ -589,9 +589,9 @@ function shouldSkipForLinkGate(
 
 // ── Copy results formatting (mirrors ScreenShareSession) ────────────
 
-function formatResults(data: ExtractedDataItem[], dateStr: string): string {
+function formatResults(data: ExtractedDataItem[], dateStr: string, templateName = "Instagram Audience Proof"): string {
   const lines = data.map((d) => `${d.label}: ${d.value}`).join("\n");
-  return `Instagram Audience Proof — Verified ${dateStr}\n\n${lines}`;
+  return `${templateName} — Verified ${dateStr}\n\n${lines}`;
 }
 
 describe("frame hash dedup", () => {

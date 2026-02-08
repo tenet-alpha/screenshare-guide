@@ -14,6 +14,8 @@ import type { ExtractionField } from "./messages";
 export interface ProofStep {
   instruction: string;
   successCriteria: string;
+  /** Short title for the landing page step card (e.g. "Open Meta Business Suite") */
+  title?: string;
   /** Short user-facing description for the landing page step card */
   description?: string;
   link?: { url: string; label: string };
@@ -29,6 +31,8 @@ export interface ProofTemplate {
   name: string;
   platform: string;
   description: string;
+  /** Subtitle shown on the completion screen (e.g. "Your Instagram audience data has been verified.") */
+  completionMessage?: string;
   steps: ProofStep[];
 }
 
@@ -39,10 +43,12 @@ export interface ProofTemplate {
 export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
   name: "Instagram Audience Proof",
   platform: "instagram",
-  description: "Verify Instagram audience metrics via live screen analysis",
+  description: "Quick, secure verification of your Instagram reach and audience metrics.",
+  completionMessage: "Your Instagram audience data has been verified.",
   steps: [
     {
       instruction: "Open Meta Business Suite and verify your Instagram handle",
+      title: "Open Meta Business Suite",
       description: "We'll verify your Instagram handle from your business dashboard.",
       successCriteria:
         "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads. The Instagram handle/username must be visible and extracted.",
@@ -55,6 +61,7 @@ export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
     },
     {
       instruction: "Open Account Insights and capture your audience metrics",
+      title: "View Your Insights",
       description: "We'll capture your reach, followers reached, and non-followers reached.",
       successCriteria:
         "The Insights overview page is open showing a summary section with actual numeric values for Reach, including a breakdown of Non-followers reached and Followers reached. This is NOT the sidebar menu — it must be the actual Insights dashboard with charts, numbers, and date ranges visible.",

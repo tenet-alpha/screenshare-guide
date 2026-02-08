@@ -212,6 +212,8 @@ export const sessionRouter = router({
       template: {
         id: template.id,
         name: template.name,
+        description: template.description,
+        completionMessage: proofTemplate.completionMessage,
         steps: typeof template.steps === "string"
           ? JSON.parse(template.steps)
           : template.steps,
@@ -296,11 +298,33 @@ export const sessionRouter = router({
       }
 
       // Get template data
-      const template = await ctx.db
+      let template = await ctx.db
         .selectFrom("templates")
         .selectAll()
         .where("id", "=", session.template_id)
         .executeTakeFirst();
+
+      // Auto-update template if the hardcoded definition has changed
+      // (mirrors the logic in createProof to keep templates fresh)
+      if (template) {
+        const knownTemplate = Object.values(PROOF_TEMPLATES).find(
+          (t) => t.name === template!.name
+        );
+        if (knownTemplate) {
+          const expectedSteps = JSON.stringify(knownTemplate.steps);
+          const currentSteps = typeof template.steps === "string"
+            ? template.steps
+            : JSON.stringify(template.steps);
+          if (currentSteps !== expectedSteps) {
+            template = await ctx.db
+              .updateTable("templates")
+              .set({ steps: expectedSteps, updated_at: new Date() })
+              .where("id", "=", template.id)
+              .returningAll()
+              .executeTakeFirstOrThrow();
+          }
+        }
+      }
 
       return {
         ...session,

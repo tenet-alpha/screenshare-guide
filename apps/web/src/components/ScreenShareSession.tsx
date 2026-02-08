@@ -14,6 +14,7 @@ interface Props {
     id: string;
     name: string;
     description?: string;
+    completionMessage?: string;
     steps: ProofStep[];
   };
   initialStep: number;
@@ -435,7 +436,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
         stream.getTracks().forEach((t) => t.stop());
         setError(
           "Please share your entire screen, not a tab or window. " +
-          "This is needed so we can see when you navigate to Meta Business Suite."
+          "This is needed so we can see when you navigate between pages."
         );
         setStatus("error");
         return;
@@ -713,7 +714,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 return (
                   <div key={i} className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                     <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold mb-3", color.bg, color.text)}>{i + 1}</div>
-                    <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-1">{step.link?.label?.replace(" →", "") || step.instruction}</h3>
+                    <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-1">{step.title || step.link?.label?.replace(" →", "") || step.instruction}</h3>
                     {step.description && (
                       <p className="text-xs text-gray-500 dark:text-gray-400">{step.description}</p>
                     )}
@@ -838,7 +839,7 @@ export function ScreenShareSession({ token, sessionId, template, initialStep }: 
                 </svg>
               </div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Verification Successful</h2>
-              <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Your audience data has been verified.</p>
+              <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">{template.completionMessage || "Your data has been verified."}</p>
             </div>
 
             {/* Results card */}
