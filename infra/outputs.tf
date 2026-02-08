@@ -24,6 +24,11 @@ output "app_service_name" {
   value = azurerm_linux_web_app.main.name
 }
 
+output "app_service_principal_id" {
+  value       = azurerm_linux_web_app.main.identity[0].principal_id
+  description = "App Service managed identity principal ID"
+}
+
 output "postgresql_fqdn" {
   value = azurerm_postgresql_flexible_server.main.fqdn
 }
@@ -68,11 +73,15 @@ output "static_web_app_api_key" {
 }
 
 output "appinsights_connection_string" {
-  value     = azurerm_application_insights.main.connection_string
+  value     = local.appinsights_connection_string
   sensitive = true
 }
 
 output "appinsights_instrumentation_key" {
-  value     = azurerm_application_insights.main.instrumentation_key
+  value = (
+    var.appinsights_mode == "create"
+    ? azurerm_application_insights.main[0].instrumentation_key
+    : "(using existing instance)"
+  )
   sensitive = true
 }
