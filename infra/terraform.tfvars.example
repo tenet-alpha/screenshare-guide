@@ -1,0 +1,39 @@
+# ─── Core ────────────────────────────────────────────────────────────────────
+subscription_id = "your-subscription-id"
+environment     = "dev"
+project         = "screenshare"
+location        = "eastus"
+pg_location     = "centralus"
+
+# ─── PostgreSQL ──────────────────────────────────────────────────────────────
+pg_admin_username = "pgadmin"
+# pg_admin_password → NEVER put in this file. Set via env var:
+#   export TF_VAR_pg_admin_password="your-password"
+
+# ─── Azure OpenAI ────────────────────────────────────────────────────────────
+azure_openai_endpoint          = "https://your-resource.cognitiveservices.azure.com"
+azure_openai_deployment_vision = "gpt-5-mini"
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+# api_key → set via TF_VAR_api_key env var for prod (empty = no auth, dev mode)
+
+# ─── CORS ────────────────────────────────────────────────────────────────────
+cors_extra_origins = [
+  "http://localhost:3000",
+]
+
+# ─── Application Insights ───────────────────────────────────────────────────
+# Option A: Create a new instance (dev)
+appinsights_mode           = "create"
+log_analytics_workspace_id = "/subscriptions/.../providers/Microsoft.OperationalInsights/workspaces/your-workspace"
+
+# Option B: Reuse an existing instance (prod)
+# appinsights_mode                       = "existing"
+# existing_appinsights_connection_string = "InstrumentationKey=...;IngestionEndpoint=..."
+
+# ─── Storage ─────────────────────────────────────────────────────────────────
+# Leave empty to auto-generate name, or set to reuse existing
+# storage_account_name = "stscreensharedevxxxx"
+
+# ─── Key Vault RBAC ─────────────────────────────────────────────────────────
+kv_admin_object_id = "your-user-object-id"  # az ad signed-in-user show --query id -o tsv
