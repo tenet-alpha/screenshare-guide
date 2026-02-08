@@ -5,6 +5,7 @@ import { websocketHandler } from "./websocket";
 import { securityHeaders, validateContentType } from "./middleware/security";
 import { standardRateLimit } from "./middleware/rate-limit";
 import { logger, generateRequestId, logRequest } from "./lib/logger";
+import { startSessionCleanup } from "./lib/cleanup";
 
 const PORT = process.env.PORT || 3001;
 
@@ -103,5 +104,8 @@ logger.info(
 
 logger.info({ endpoint: `http://localhost:${PORT}/trpc` }, "tRPC endpoint");
 logger.info({ endpoint: `ws://localhost:${PORT}/ws` }, "WebSocket endpoint");
+
+// Start periodic cleanup of expired sessions
+startSessionCleanup();
 
 export type App = typeof app;
