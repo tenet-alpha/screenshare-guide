@@ -101,6 +101,12 @@ resource "azurerm_linux_web_app" "main" {
     "AZURE_SPEECH_VOICE_NAME"        = "en-US-JennyNeural"
     "AZURE_STORAGE_CONTAINER"        = azurerm_storage_container.recordings.name
 
+    # ── Telemetry ──
+    "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
+
+    # ── Auth ──
+    "API_KEY" = var.api_key
+
     # ── Infra secrets (from Terraform state, not user-managed) ──
     "DATABASE_URL"                   = "postgresql://${var.pg_admin_username}:${var.pg_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/screenshare?sslmode=require"
     "AZURE_STORAGE_CONNECTION_STRING" = azurerm_storage_account.main.primary_connection_string
@@ -209,6 +215,16 @@ locals {
     "ANTHROPIC-API-KEY",
     "AZURE-SPEECH-API-KEY",
   ]
+}
+
+# ─── Application Insights (free tier — telemetry) ───────────────────────────
+resource "azurerm_application_insights" "main" {
+  name                = "ai-${var.project}-${var.environment}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  application_type    = "web"
+
+  tags = azurerm_resource_group.main.tags
 }
 
 # ─── Static Web App (Free tier — frontend) ──────────────────────────────────

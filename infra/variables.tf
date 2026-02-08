@@ -35,4 +35,11 @@ variable "azure_openai_endpoint" {
   default     = "https://dusan-mhyrnr7e-eastus2.cognitiveservices.azure.com"
 }
 
+variable "api_key" {
+  description = "API key for authenticated endpoints (createProof). Empty = dev mode (no auth)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 ## Azure Speech is derived from the Cognitive Services resource, no variable needed

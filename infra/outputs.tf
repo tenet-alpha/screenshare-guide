@@ -66,3 +66,13 @@ output "static_web_app_api_key" {
   value     = azurerm_static_web_app.frontend.api_key
   sensitive = true
 }
+
+output "appinsights_connection_string" {
+  value     = azurerm_application_insights.main.connection_string
+  sensitive = true
+}
+
+output "appinsights_instrumentation_key" {
+  value     = azurerm_application_insights.main.instrumentation_key
+  sensitive = true
+}
