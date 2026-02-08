@@ -300,6 +300,75 @@ function debounceDelay(extra = 50): Promise<void> {
   return new Promise((r) => setTimeout(r, ANALYSIS_DEBOUNCE_MS + extra));
 }
 
+/**
+ * After sending a frame that should trigger step advancement, the server
+ * may issue an interaction challenge (random, ~40% probability) before
+ * advancing. This helper handles both paths:
+ *   - If no challenge → returns the stepComplete/completed message directly
+ *   - If challenge → sends another frame to satisfy it, then returns stepComplete/completed
+ */
+async function waitForStepAdvance(
+  client: TestWSClient,
+  expectedType: "stepComplete" | "completed" = "stepComplete",
+  timeoutMs = 5000,
+): Promise<any> {
+  // Wait for either stepComplete/completed OR a challenge message
+  const msg = await new Promise<any>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timeout waiting for ${expectedType} or challenge after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+    // Try to get the expected message first (might already be buffered)
+    const tryExpected = async () => {
+      try {
+        const result = await client.waitForMessage(expectedType, 200);
+        clearTimeout(timer);
+        resolve(result);
+      } catch {
+        // Not buffered yet — try challenge
+        try {
+          const challengeMsg = await client.waitForMessage("challenge", 200);
+          clearTimeout(timer);
+          resolve(challengeMsg);
+        } catch {
+          // Neither buffered — wait for whichever arrives first
+          const raceTimeout = timeoutMs - 500;
+          Promise.race([
+            client.waitForMessage(expectedType, raceTimeout),
+            client.waitForMessage("challenge", raceTimeout),
+          ]).then((result) => {
+            clearTimeout(timer);
+            resolve(result);
+          }).catch((err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        }
+      }
+    };
+    tryExpected();
+  });
+
+  if (msg.type === "challenge") {
+    // Drain the challenge TTS audio
+    await new Promise((r) => setTimeout(r, 300));
+    client.drainMessages();
+
+    // Send a frame to satisfy the challenge — the mock analyzeFrame already
+    // returns matchesSuccessCriteria: true, which the server uses for both
+    // step analysis and challenge verification
+    await debounceDelay();
+    client.send({ type: "frame", imageData: TINY_FRAME });
+    await client.waitForMessage("analyzing", 3000);
+    await client.waitForMessage("analysis", 3000);
+
+    // Now the step should advance
+    return client.waitForMessage(expectedType, 5000);
+  }
+
+  return msg;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("WebSocket Integration Tests", () => {
@@ -618,12 +687,13 @@ describe("WebSocket Integration Tests", () => {
 
         // Frame 2: success + Handle vote 2 (consensus reached!)
         // Now hasAllRequiredFields should be true, and this is a success → advance
+        // Server may issue an interaction challenge before advancing (random ~40%)
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
 
-        // Should get stepComplete
-        const stepComplete = await client.waitForMessage("stepComplete", 3000);
+        // Handle possible challenge, then get stepComplete
+        const stepComplete = await waitForStepAdvance(client, "stepComplete");
         expect(stepComplete.type).toBe("stepComplete");
         expect(stepComplete.currentStep).toBe(1);
         expect(stepComplete.totalSteps).toBe(2);
@@ -670,10 +740,13 @@ describe("WebSocket Integration Tests", () => {
         await debounceDelay();
 
         // Frame 2: consensus reached → advance → TTS
+        // Server may issue a challenge before advancing
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
-        await client.waitForMessage("stepComplete", 3000);
+
+        const stepComplete = await waitForStepAdvance(client, "stepComplete");
+        expect(stepComplete.type).toBe("stepComplete");
 
         // Should receive audio for step transition
         const audio = await client.waitForMessage("audio", 3000);
@@ -723,7 +796,9 @@ describe("WebSocket Integration Tests", () => {
       client.send({ type: "frame", imageData: TINY_FRAME });
       await client.waitForMessage("analyzing", 3000);
       await client.waitForMessage("analysis", 3000);
-      await client.waitForMessage("stepComplete", 3000);
+
+      // Server may issue an interaction challenge before advancing
+      await waitForStepAdvance(client, "stepComplete");
 
       // Drain audio message from transition
       await new Promise((r) => setTimeout(r, 500));
@@ -762,12 +837,12 @@ describe("WebSocket Integration Tests", () => {
         await client.waitForMessage("analysis", 3000);
         await debounceDelay();
 
-        // Frame 2: consensus reached → complete
+        // Frame 2: consensus reached → complete (may get challenge first)
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
 
-        const completed = await client.waitForMessage("completed", 5000);
+        const completed = await waitForStepAdvance(client, "completed");
         expect(completed.type).toBe("completed");
         expect(completed.message).toContain("All steps completed");
       } finally {
@@ -805,7 +880,7 @@ describe("WebSocket Integration Tests", () => {
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
 
-        const completed = await client.waitForMessage("completed", 5000);
+        const completed = await waitForStepAdvance(client, "completed");
         expect(completed.extractedData).toBeDefined();
         expect(Array.isArray(completed.extractedData)).toBe(true);
 
@@ -847,7 +922,8 @@ describe("WebSocket Integration Tests", () => {
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
-        await client.waitForMessage("completed", 5000);
+
+        await waitForStepAdvance(client, "completed");
 
         // Wait for async DB writes to complete
         await new Promise((r) => setTimeout(r, 500));
@@ -948,11 +1024,12 @@ describe("WebSocket Integration Tests", () => {
         await debounceDelay();
 
         // 4. Frame 2: Handle vote 2 → consensus → advance to step 1
+        //    Server may issue an interaction challenge before advancing
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
 
-        const stepComplete1 = await client.waitForMessage("stepComplete", 3000);
+        const stepComplete1 = await waitForStepAdvance(client, "stepComplete");
         expect(stepComplete1.currentStep).toBe(1);
         expect(stepComplete1.totalSteps).toBe(2);
 
@@ -980,12 +1057,13 @@ describe("WebSocket Integration Tests", () => {
         await debounceDelay();
 
         // 8. Frame 5: all metrics vote - Reach→3, Non-followers→3, Followers→2 (consensus for all!)
+        //    Server may issue a challenge before completing
         client.send({ type: "frame", imageData: TINY_FRAME });
         await client.waitForMessage("analyzing", 3000);
         await client.waitForMessage("analysis", 3000);
 
-        // 9. Session complete
-        const completed = await client.waitForMessage("completed", 5000);
+        // 9. Session complete (may go through challenge first)
+        const completed = await waitForStepAdvance(client, "completed");
         expect(completed.type).toBe("completed");
         expect(completed.message).toContain("All steps completed");
 
