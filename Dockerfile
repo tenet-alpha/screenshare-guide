@@ -7,9 +7,10 @@ COPY packages/db/package.json packages/db/
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/trpc/package.json packages/trpc/
 COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
 RUN bun install --frozen-lockfile
 
-# Copy source
+# Copy source (server + shared packages only)
 COPY packages/ packages/
 COPY apps/server/ apps/server/
 
