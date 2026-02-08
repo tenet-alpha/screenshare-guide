@@ -50,7 +50,7 @@ export function useFrameCapture({
       hashCanvasRef.current.height = 16;
     }
     const hashCanvas = hashCanvasRef.current;
-    const hashCtx = hashCanvas.getContext("2d")!;
+    const hashCtx = hashCanvas.getContext("2d", { willReadFrequently: true })!;
 
     frameIntervalRef.current = setInterval(() => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || video.readyState < 2) return;
