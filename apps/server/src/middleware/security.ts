@@ -27,6 +27,18 @@ export const securityHeaders = new Elysia({ name: "security-headers" })
     set.headers["Permissions-Policy"] =
       "camera=(), microphone=(), geolocation=(), payment=()";
 
+    // Content Security Policy (defense-in-depth for API responses)
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js needs these
+      "style-src 'self' 'unsafe-inline'", // Tailwind needs inline styles
+      "img-src 'self' data: blob:", // data: for canvas frames
+      "media-src 'self' blob: data:", // blob: for audio playback
+      "connect-src 'self' wss: ws: https:", // WebSocket + API
+      "frame-ancestors 'none'", // No iframes
+    ].join("; ");
+    set.headers["Content-Security-Policy"] = cspDirectives;
+
     // HSTS (only in production with HTTPS)
     if (process.env.NODE_ENV === "production") {
       set.headers["Strict-Transport-Security"] =

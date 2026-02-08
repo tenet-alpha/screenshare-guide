@@ -18,7 +18,7 @@ export async function trpcHandler(ctx: Context) {
     endpoint: "/trpc",
     req: ctx.request,
     router: appRouter,
-    createContext,
+    createContext: ({ req }) => createContext({ req }),
   });
 
   // Copy status

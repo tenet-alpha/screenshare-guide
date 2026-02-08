@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, publicProcedure } from "../trpc";
+import { router, publicProcedure, authenticatedProcedure } from "../trpc";
 import type { SessionMetadata } from "@screenshare-guide/db";
 import { nanoid } from "nanoid";
 import {
@@ -151,7 +151,7 @@ export const sessionRouter = router({
    * Accepts an optional platform (default "instagram").
    * Finds or creates the template, then creates a session with 24h expiry.
    */
-  createProof: publicProcedure
+  createProof: authenticatedProcedure
     .input(z.object({ platform: z.string().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
     const platform = input?.platform ?? "instagram";

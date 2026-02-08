@@ -56,6 +56,11 @@ function checkWsRateLimit(token: string): boolean {
 }
 
 export const websocketHandler = new Elysia()
+  // Derive origin header so it's available in ws.data for origin validation
+  .derive(({ request }) => {
+    const origin = request.headers.get("origin") ?? undefined;
+    return { origin };
+  })
   .ws("/ws/:token", {
     // Validate the token parameter
     params: t.Object({
@@ -66,6 +71,27 @@ export const websocketHandler = new Elysia()
     async open(ws) {
       const { token } = ws.data.params;
       logWebSocket("open", token);
+
+      // --- WebSocket origin validation ---
+      const origin = ws.data.origin;
+      const allowedOrigins =
+        process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()) || [
+          "http://localhost:3000",
+        ];
+
+      // In production, reject connections from disallowed origins
+      if (
+        process.env.NODE_ENV === "production" &&
+        origin &&
+        !allowedOrigins.includes(origin)
+      ) {
+        log.warn("WebSocket rejected: invalid origin", { origin });
+        ws.send(
+          JSON.stringify({ type: "error", message: "Invalid origin" })
+        );
+        ws.close();
+        return;
+      }
 
       try {
         // Validate session
