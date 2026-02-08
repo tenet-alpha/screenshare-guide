@@ -53,4 +53,11 @@ bun.lockb
 
 # Misc
 *.pem
-swa.tfplan
+
+# Terraform state & plans (contain secrets — never commit)
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+.terraform/
+.terraform.lock.hcl
