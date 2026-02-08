@@ -4,6 +4,7 @@ WORKDIR /app
 # Install dependencies first (cache layer)
 COPY package.json bun.lock ./
 COPY packages/db/package.json packages/db/
+COPY packages/protocol/package.json packages/protocol/
 COPY packages/trpc/package.json packages/trpc/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
