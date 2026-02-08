@@ -19,6 +19,7 @@
     "@trpc/server": "^10.45.0",
     "applicationinsights": "^3.13.0",
     "elysia": "^1.0.3",
+    "ioredis": "^5.9.2",
     "nanoid": "^5.0.4",
     "pino": "^9.0.0",
     "superjson": "^2.2.6",

@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { analyzeFrame, generateSpeech } from "./ai";
 import { db } from "@screenshare-guide/db";
 import { logWebSocket, logAI, log } from "./lib/logger";
+import { notifyWebhook } from "./lib/webhook";
 import {
   CONSENSUS_THRESHOLD,
   ANALYSIS_DEBOUNCE_MS,
@@ -10,8 +11,8 @@ import {
   WS_RATE_LIMIT_MAX,
   TTS_QUIET_PERIOD_MS,
   TTS_STUCK_TIMEOUT_MS,
+  PROOF_TEMPLATES,
 } from "@screenshare-guide/protocol";
-import type { ProofStep } from "@screenshare-guide/protocol";
 import {
   trackVisionAnalysis,
   trackTTSGeneration,
@@ -19,33 +20,13 @@ import {
   trackVerificationComplete,
 } from "./lib/telemetry";
 import { clientMessageSchema } from "./websocket-schemas";
+import { createSessionStore } from "./lib/redis";
+import type { SessionState, SessionStore } from "./lib/redis";
 
-// Session state machine
-interface SessionState {
-  sessionId: string;
-  templateId: string;
-  currentStep: number;
-  totalSteps: number;
-  steps: ProofStep[];
-  status: "waiting" | "analyzing" | "completed";
-  lastAnalysisTime: number;
-  consecutiveSuccesses: number;
-  linkClicked: Record<number, boolean>;
-  allExtractedData: Array<{ label: string; value: string }>;
-  /** Vote counter: field → { value → count }. Used for consensus before committing. */
-  extractionVotes: Record<string, Record<string, number>>;
-  lastSpokenAction: string | null;
-  lastInstructionTime: number;
-  /** Timestamp when the last link was clicked — used for quiet period */
-  linkClickedTime: number;
-  /** Last suggestedAction from vision — used for stability gate (must match twice before speaking) */
-  pendingSuggestedAction: string | null;
-}
+// Session store (Redis in production, in-memory Map in dev)
+export const sessionStore: SessionStore = createSessionStore();
 
-// In-memory session states (production would use Redis)
-const activeSessions = new Map<string, SessionState>();
-
-// Rate limiting for WebSocket messages
+// Rate limiting for WebSocket messages (ephemeral, per-instance is fine)
 const messageRateLimit = new Map<string, { count: number; resetAt: number }>();
 
 function checkWsRateLimit(token: string): boolean {
@@ -153,11 +134,17 @@ export const websocketHandler = new Elysia()
           // Ignore parse errors — start fresh
         }
 
+        // Derive platform from template name by reverse-looking up in PROOF_TEMPLATES
+        const platform = Object.entries(PROOF_TEMPLATES).find(
+          ([, t]) => t.name === template.name
+        )?.[0] ?? "unknown";
+
         // Initialize session state (clamp currentStep to valid range)
         const clampedStep = Math.min(session.current_step, steps.length - 1);
         const state: SessionState = {
           sessionId: session.id,
           templateId: session.template_id,
+          platform,
           currentStep: Math.max(0, clampedStep),
           totalSteps: steps.length,
           steps,
@@ -173,7 +160,7 @@ export const websocketHandler = new Elysia()
           pendingSuggestedAction: null,
         };
 
-        activeSessions.set(token, state);
+        await sessionStore.set(token, state);
 
         log.info("WebSocket session initialized", {
           sessionId: session.id,
@@ -210,7 +197,7 @@ export const websocketHandler = new Elysia()
     // Handle incoming messages (frame data)
     async message(ws, message) {
       const { token } = ws.data.params;
-      const state = activeSessions.get(token);
+      const state = await sessionStore.get(token);
 
       if (!state) {
         ws.send(JSON.stringify({ type: "error", message: "Session not initialized" }));
@@ -272,6 +259,9 @@ export const websocketHandler = new Elysia()
             ws.send(JSON.stringify({ type: "pong" }));
             break;
         }
+
+        // Persist mutated state back to store
+        await sessionStore.set(token, state);
       } catch (error) {
         log.error("WebSocket message processing failed", error as Error);
         ws.send(JSON.stringify({ type: "error", message: "Failed to process message" }));
@@ -279,14 +269,14 @@ export const websocketHandler = new Elysia()
     },
 
     // Handle WebSocket close
-    close(ws) {
+    async close(ws) {
       const { token } = ws.data.params;
-      const state = activeSessions.get(token);
+      const state = await sessionStore.get(token);
       logWebSocket("close", token);
       if (state) {
         trackSessionEvent("disconnected", state.sessionId);
       }
-      activeSessions.delete(token);
+      await sessionStore.delete(token);
       messageRateLimit.delete(token);
     },
   });
@@ -515,12 +505,21 @@ async function handleFrame(
             extractedData: state.allExtractedData,
           });
 
+          // Fire-and-forget webhook notification
+          notifyWebhook({
+            event: "session.completed",
+            sessionId: state.sessionId,
+            platform: state.platform,
+            extractedData: state.allExtractedData,
+            completedAt: new Date().toISOString(),
+          }).catch(() => {});
+
           trackSessionEvent("completed", state.sessionId, {
             fieldsExtracted: String(state.allExtractedData.length),
           });
           trackVerificationComplete(
             state.sessionId,
-            "instagram", // TODO: read from template when multi-platform
+            state.platform,
             state.allExtractedData.length
           );
 

@@ -113,6 +113,38 @@ variable "existing_appinsights_connection_string" {
   default     = ""
 }
 
+# ─── Redis ───────────────────────────────────────────────────────────────────
+
+variable "redis_mode" {
+  description = "Whether to create a new Redis Cache instance or use an existing one"
+  type        = string
+  default     = "create"
+
+  validation {
+    condition     = contains(["create", "existing", "none"], var.redis_mode)
+    error_message = "Must be 'create', 'existing', or 'none'."
+  }
+}
+
+variable "existing_redis_url" {
+  description = "Full Redis URL for external instance (required when redis_mode = 'existing')"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "redis_sku" {
+  description = "Redis Cache SKU (Basic, Standard, Premium)"
+  type        = string
+  default     = "Basic"
+}
+
+variable "redis_capacity" {
+  description = "Redis Cache capacity (0=250MB, 1=1GB, etc.)"
+  type        = number
+  default     = 0
+}
+
 # ─── Storage ─────────────────────────────────────────────────────────────────
 
 variable "storage_account_name" {

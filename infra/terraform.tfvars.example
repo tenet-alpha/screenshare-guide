@@ -31,6 +31,15 @@ log_analytics_workspace_id = "/subscriptions/.../providers/Microsoft.Operational
 # appinsights_mode                       = "existing"
 # existing_appinsights_connection_string = "InstrumentationKey=...;IngestionEndpoint=..."
 
+# ─── Redis ────────────────────────────────────────────────────────────────────
+# "none" = no Redis (in-memory session state, fine for dev)
+# "create" = deploy Azure Cache for Redis
+# "existing" = use external Redis URL
+redis_mode = "none"
+# redis_sku      = "Basic"   # Basic (~$17/mo), Standard (~$50/mo), Premium
+# redis_capacity = 0         # 0=250MB, 1=1GB, 2=2.5GB, etc.
+# existing_redis_url = "rediss://:password@host:6380"
+
 # ─── Storage ─────────────────────────────────────────────────────────────────
 # Leave empty to auto-generate name, or set to reuse existing
 # storage_account_name = "stscreensharedevxxxx"

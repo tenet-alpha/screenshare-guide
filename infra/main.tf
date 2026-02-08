@@ -41,6 +41,15 @@ locals {
     ? "postgresql://${var.pg_admin_username}:${random_password.pg_admin[0].result}@${azurerm_postgresql_flexible_server.main[0].fqdn}:5432/screenshare?sslmode=require"
     : var.existing_database_url
   )
+
+  # Redis URL: resolve from created, existing, or empty (in-memory fallback)
+  redis_url = (
+    var.redis_mode == "create"
+    ? "rediss://:${azurerm_redis_cache.main[0].primary_access_key}@${azurerm_redis_cache.main[0].hostname}:${azurerm_redis_cache.main[0].ssl_port}"
+    : var.redis_mode == "existing"
+    ? var.existing_redis_url
+    : ""
+  )
 }
 
 # ─── Random suffix for globally unique names ────────────────────────────────
@@ -155,6 +164,9 @@ resource "azurerm_linux_web_app" "main" {
     # ── Telemetry ──
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = local.appinsights_connection_string
 
+    # ── Redis ──
+    "REDIS_URL" = local.redis_url
+
     # ── Auth ──
     "API_KEY" = var.api_key
 
@@ -252,6 +264,23 @@ resource "azurerm_application_insights" "main" {
   resource_group_name = azurerm_resource_group.main.name
   application_type    = "web"
   workspace_id        = var.log_analytics_workspace_id
+
+  tags = azurerm_resource_group.main.tags
+}
+
+# ─── Azure Cache for Redis (optional — for WS session persistence) ──────────
+resource "azurerm_redis_cache" "main" {
+  count               = var.redis_mode == "create" ? 1 : 0
+  name                = "redis-${var.project}-${var.environment}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  capacity            = var.redis_capacity
+  family              = var.redis_sku == "Premium" ? "P" : "C"
+  sku_name            = var.redis_sku
+  enable_non_ssl_port = false
+  minimum_tls_version = "1.2"
+
+  redis_configuration {}
 
   tags = azurerm_resource_group.main.tags
 }

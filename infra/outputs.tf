@@ -72,6 +72,15 @@ output "static_web_app_api_key" {
   sensitive = true
 }
 
+output "redis_hostname" {
+  value = var.redis_mode == "create" ? azurerm_redis_cache.main[0].hostname : "(external or none)"
+}
+
+output "redis_url" {
+  value     = local.redis_url
+  sensitive = true
+}
+
 output "appinsights_connection_string" {
   value     = local.appinsights_connection_string
   sensitive = true

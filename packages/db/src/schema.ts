@@ -15,14 +15,6 @@ export interface SessionMetadata {
   totalDurationMs?: number;
 }
 
-export interface FrameAnalysis {
-  description: string;
-  detectedElements: string[];
-  matchesSuccessCriteria: boolean;
-  confidence: number;
-  suggestedAction?: string;
-}
-
 // ─── Table interfaces ───────────────────────────────────────────────
 
 export interface TemplatesTable {
@@ -58,22 +50,12 @@ export interface RecordingsTable {
   created_at: Generated<Date>;
 }
 
-export interface FrameSamplesTable {
-  id: Generated<string>;
-  session_id: string;
-  storage_key: string;
-  captured_at: Date;
-  analysis_result: ColumnType<FrameAnalysis | null, string | FrameAnalysis | null, string | FrameAnalysis | null>;
-  created_at: Generated<Date>;
-}
-
 // ─── Database interface ─────────────────────────────────────────────
 
 export interface Database {
   templates: TemplatesTable;
   sessions: SessionsTable;
   recordings: RecordingsTable;
-  frame_samples: FrameSamplesTable;
 }
 
 // ─── Convenience row types ──────────────────────────────────────────
@@ -89,7 +71,3 @@ export type SessionUpdate = Updateable<SessionsTable>;
 export type Recording = Selectable<RecordingsTable>;
 export type NewRecording = Insertable<RecordingsTable>;
 export type RecordingUpdate = Updateable<RecordingsTable>;
-
-export type FrameSample = Selectable<FrameSamplesTable>;
-export type NewFrameSample = Insertable<FrameSamplesTable>;
-export type FrameSampleUpdate = Updateable<FrameSamplesTable>;

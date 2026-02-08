@@ -282,7 +282,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   // Clean up test data
-  await testDb.deleteFrom("frame_samples").where("session_id", "=", sessionId).execute();
   await testDb.deleteFrom("recordings").where("session_id", "=", sessionId).execute();
   await testDb.deleteFrom("sessions").where("id", "=", sessionId).execute();
   await testDb.deleteFrom("templates").where("id", "=", templateId).execute();

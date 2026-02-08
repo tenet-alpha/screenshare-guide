@@ -37,11 +37,6 @@ export async function cleanupExpiredSessions(): Promise<number> {
 
     // Delete dependent rows first (FK constraints)
     await db
-      .deleteFrom("frame_samples")
-      .where("session_id", "in", ids)
-      .execute();
-
-    await db
       .deleteFrom("recordings")
       .where("session_id", "in", ids)
       .execute();

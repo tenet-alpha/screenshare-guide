@@ -224,7 +224,7 @@ export const sessionRouter = router({
   /**
    * Create a new session with a unique token
    */
-  create: publicProcedure
+  create: authenticatedProcedure
     .input(createSessionSchema)
     .mutation(async ({ ctx, input }) => {
       // Verify template exists
@@ -343,7 +343,7 @@ export const sessionRouter = router({
   /**
    * Get session by ID (for admin/internal use)
    */
-  get: publicProcedure
+  get: authenticatedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const session = await ctx.db
@@ -379,7 +379,7 @@ export const sessionRouter = router({
   /**
    * List all sessions (with optional filtering)
    */
-  list: publicProcedure
+  list: authenticatedProcedure
     .input(
       z
         .object({
@@ -449,7 +449,7 @@ export const sessionRouter = router({
   /**
    * Update session progress
    */
-  update: publicProcedure
+  update: authenticatedProcedure
     .input(updateSessionSchema)
     .mutation(async ({ ctx, input }) => {
       const { id, metadata: newMetadata, ...updates } = input;
@@ -488,7 +488,7 @@ export const sessionRouter = router({
   /**
    * Complete a session
    */
-  complete: publicProcedure
+  complete: authenticatedProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -529,7 +529,7 @@ export const sessionRouter = router({
    * Get a presigned Azure Blob Storage SAS URL for uploading a session recording.
    * Returns null if Azure Storage is not configured — recording is optional.
    */
-  getUploadUrl: publicProcedure
+  getUploadUrl: authenticatedProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
     .mutation(async ({ input }) => {
       return generateUploadSasUrl(input.sessionId);

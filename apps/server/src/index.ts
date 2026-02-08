@@ -5,11 +5,12 @@ initTelemetry();
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { trpcHandler } from "./trpc-adapter";
-import { websocketHandler } from "./websocket";
+import { websocketHandler, sessionStore } from "./websocket";
 import { securityHeaders, validateContentType } from "./middleware/security";
 import { standardRateLimit } from "./middleware/rate-limit";
 import { logger, generateRequestId, logRequest } from "./lib/logger";
-import { startSessionCleanup } from "./lib/cleanup";
+import { startSessionCleanup, stopSessionCleanup } from "./lib/cleanup";
+import { flushTelemetry } from "./lib/telemetry";
 
 const PORT = process.env.PORT || 3001;
 
@@ -111,5 +112,29 @@ logger.info({ endpoint: `ws://localhost:${PORT}/ws` }, "WebSocket endpoint");
 
 // Start periodic cleanup of expired sessions
 startSessionCleanup();
+
+// ─── Graceful Shutdown ──────────────────────────────────────────────
+
+async function gracefulShutdown(signal: string) {
+  logger.info({ signal }, "Shutdown signal received");
+
+  // Stop accepting new connections
+  app.stop();
+
+  // Stop session cleanup timer
+  stopSessionCleanup();
+
+  // Flush telemetry
+  await flushTelemetry();
+
+  // Close Redis/session store connection
+  await sessionStore.quit();
+
+  logger.info("Graceful shutdown complete");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 export type App = typeof app;
