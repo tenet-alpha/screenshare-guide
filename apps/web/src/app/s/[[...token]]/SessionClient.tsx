@@ -90,6 +90,7 @@ export default function SessionClient() {
 
   const normalizedTemplate = {
     ...template,
+    description: template.description ?? undefined,
     steps: Array.isArray(template.steps)
       ? template.steps
       : typeof template.steps === "string"

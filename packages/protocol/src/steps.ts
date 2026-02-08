@@ -14,6 +14,8 @@ import type { ExtractionField } from "./messages";
 export interface ProofStep {
   instruction: string;
   successCriteria: string;
+  /** Short user-facing description for the landing page step card */
+  description?: string;
   link?: { url: string; label: string };
   extractionSchema?: ExtractionField[];
   requiresLinkClick?: boolean;
@@ -41,6 +43,7 @@ export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
   steps: [
     {
       instruction: "Open Meta Business Suite and verify your Instagram handle",
+      description: "We'll verify your Instagram handle from your business dashboard.",
       successCriteria:
         "The Meta Business Suite home page is visible with the left sidebar showing menu items like Home, Notifications, Inbox, Planner, Content, Insights, Ads. The Instagram handle/username must be visible and extracted.",
       link: { url: "https://business.facebook.com/latest/home", label: "Open Meta Business Suite →" },
@@ -52,6 +55,7 @@ export const INSTAGRAM_PROOF_TEMPLATE: ProofTemplate = {
     },
     {
       instruction: "Open Account Insights and capture your audience metrics",
+      description: "We'll capture your reach, followers reached, and non-followers reached.",
       successCriteria:
         "The Insights overview page is open showing a summary section with actual numeric values for Reach, including a breakdown of Non-followers reached and Followers reached. This is NOT the sidebar menu — it must be the actual Insights dashboard with charts, numbers, and date ranges visible.",
       link: { url: "https://business.facebook.com/latest/insights/", label: "Open Account Insights →" },
