@@ -1,309 +1,260 @@
 # ScreenShare Guide
 
-AI-powered screen sharing guidance platform. Generate unique session links, guide users through tasks with real-time AI vision analysis and voice instructions.
+AI-powered screen sharing verification platform. Guide users through multi-step proof workflows with real-time vision analysis and voice instructions.
 
-## Features
+## What It Does
 
-- **Template System**: Create reusable instruction templates with multiple steps
-- **Session Management**: Generate unique, expiring session links
-- **Real-time Screen Analysis**: AI-powered vision analysis using Claude or Azure OpenAI
-- **Voice Guidance**: Text-to-speech instructions via ElevenLabs or Azure Speech
-- **Recording Storage**: Automatic recording storage in Azure Blob Storage
-- **Progress Tracking**: Step-by-step progress with automatic advancement
-- **Multi-Provider Support**: Switch between Anthropic/ElevenLabs and Azure OpenAI
+1. **Create a proof session** via API (e.g. "verify your Instagram audience")
+2. **Share the link** with the user
+3. **User shares their screen** — AI watches, speaks instructions, extracts data
+4. **Data is verified** through consensus voting and returned via webhook
+
+## Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Next.js     │────▶│  Elysia     │────▶│  PostgreSQL   │
+│  (SWA)       │ WS  │  (App Svc)  │     │  (Flexible)   │
+└─────────────┘     │             │────▶│  Redis Cache   │
+                    │             │────▶│  Azure Blob    │
+                    │             │────▶│  Azure OpenAI  │
+                    │             │────▶│  Azure Speech  │
+                    │             │────▶│  Key Vault     │
+                    │             │────▶│  App Insights  │
+                    └─────────────┘     └──────────────┘
+```
 
 ## Tech Stack
 
-- **Runtime**: Bun
-- **Backend**: Elysia (Bun-native web framework)
-- **API**: tRPC for CRUD, raw WebSockets for real-time
-- **Database**: PostgreSQL + Kysely (Graphile Migrate for migrations)
-- **Frontend**: Next.js 14 (App Router)
-- **Storage**: Azure Blob Storage
-- **AI**: Anthropic Claude or Azure OpenAI for vision; ElevenLabs or Azure Speech for TTS
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Bun |
+| Backend | Elysia (WebSockets + HTTP) |
+| API | tRPC (CRUD), raw WebSocket (real-time) |
+| Database | PostgreSQL + Kysely + Graphile Migrate |
+| Session State | Redis (prod) / in-memory Map (dev) |
+| Frontend | Next.js 14 (static export → Azure SWA) |
+| Storage | Azure Blob Storage |
+| Vision AI | Azure OpenAI (GPT) or Anthropic (Claude) |
+| TTS | Azure Speech or ElevenLabs |
+| Telemetry | Azure Application Insights |
+| Infrastructure | Terraform (Azure) |
+| CI/CD | GitHub Actions |
 
 ## Project Structure
 
 ```
 screenshare-guide/
 ├── apps/
-│   ├── server/          # Elysia backend
+│   ├── server/              # Elysia backend
 │   │   └── src/
-│   │       ├── ai/          # AI provider abstraction
-│   │       │   ├── providers/   # Anthropic, Azure implementations
-│   │       │   ├── types.ts     # Provider interfaces
-│   │       │   └── index.ts     # Provider factory
-│   │       ├── routes/      # Storage routes
-│   │       └── websocket.ts # Real-time guidance loop
-│   └── web/             # Next.js frontend
+│   │       ├── ai/              # AI provider factory + implementations
+│   │       │   └── providers/   # Azure OpenAI, Anthropic, ElevenLabs
+│   │       ├── lib/             # Logger, telemetry, Redis, webhook, cleanup
+│   │       ├── middleware/      # Security headers, rate limiting
+│   │       ├── websocket.ts     # Real-time guidance state machine
+│   │       └── index.ts         # Server entry + graceful shutdown
+│   └── web/                 # Next.js frontend (static export)
 │       └── src/
-│           ├── app/         # App router pages
-│           ├── components/  # React components
-│           └── lib/         # Utilities, tRPC client
+│           ├── app/             # App Router pages
+│           └── components/      # ScreenShare session UI + hooks
 ├── packages/
-│   ├── db/              # Kysely types + client
-│   └── trpc/            # Shared tRPC router
-├── docker-compose.yml   # Local PostgreSQL
-└── .env.example         # Environment template
+│   ├── db/                  # Kysely schema + client
+│   ├── protocol/            # Shared types, steps, constants
+│   └── trpc/                # tRPC router + context
+├── infra/                   # Terraform (Azure)
+│   ├── main.tf              # All resources
+│   ├── variables.tf         # All config points
+│   ├── outputs.tf           # Outputs
+│   ├── backend.tf           # Remote state config (uncomment after bootstrap)
+│   ├── bootstrap/           # One-time state backend setup
+│   └── terraform.tfvars.example
+├── migrations/              # Graphile Migrate SQL
+├── Dockerfile               # Production container
+└── .github/workflows/       # CI + deploy pipelines
 ```
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) (v1.0+)
-- [Docker](https://www.docker.com/) (for PostgreSQL)
-- Azure Storage Account (for recording storage)
-- API keys for your chosen AI provider
+- [Bun](https://bun.sh) v1.0+
+- [Docker](https://www.docker.com/) (for local PostgreSQL)
+- API keys for your AI provider (Azure OpenAI or Anthropic)
 
-### 1. Clone and Install
+### Quick Start
 
 ```bash
-git clone https://github.com/your-username/screenshare-guide.git
+# Clone and install
+git clone <repo-url>
 cd screenshare-guide
 bun install
-```
 
-### 2. Set Up Environment
-
-```bash
+# Set up environment
 cp .env.example .env
-```
+# Edit .env with your API keys
 
-### 3. Configure AI Provider
-
-Choose your AI provider by setting `AI_PROVIDER`:
-
-#### Option A: Anthropic + ElevenLabs (Default)
-
-```env
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
-```
-
-#### Option B: Azure OpenAI + Azure Speech
-
-```env
-AI_PROVIDER=azure
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_DEPLOYMENT_VISION=gpt-4o
-AZURE_SPEECH_ENDPOINT=https://eastus.tts.speech.microsoft.com
-AZURE_SPEECH_API_KEY=...
-AZURE_SPEECH_VOICE_NAME=en-US-JennyNeural
-```
-
-> **Note**: If Azure Speech is not configured, the system falls back to ElevenLabs for TTS.
-
-### 4. Configure Azure Blob Storage
-
-1. Create an Azure Storage Account in the Azure Portal
-2. Create a container (e.g., `screenshare-recordings`)
-3. Get the connection string from **Access Keys**
-
-```env
-AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net
-AZURE_STORAGE_CONTAINER_NAME=screenshare-recordings
-```
-
-### 5. Start PostgreSQL
-
-```bash
+# Start PostgreSQL
 docker-compose up -d
-```
 
-### 6. Run Database Migrations
-
-```bash
+# Run migrations
 bun run db:migrate
-```
 
-### 7. Start Development Servers
-
-In separate terminals:
-
-```bash
-# Backend (port 3001)
-bun run dev:server
-
-# Frontend (port 3000)
-bun run dev:web
-```
-
-Or run both:
-
-```bash
+# Start dev servers (backend :3001 + frontend :3000)
 bun run dev
 ```
 
-### 8. Open the App
+### AI Provider Configuration
 
-Visit [http://localhost:3000](http://localhost:3000)
+**Vision** (`VISION_PROVIDER`): `azure` (default) or `anthropic`
+**TTS** (`TTS_PROVIDER`): `azure` (default) or `elevenlabs`
 
-## Usage
+See `.env.example` for all required env vars per provider.
 
-### Creating a Template
+## API
 
-1. Go to the home page
-2. Fill in template name and description
-3. Add steps with instructions and success criteria
-4. Click "Create Template"
+### Authentication
 
-### Starting a Session
-
-1. Click "Create Link" on any template
-2. Share the generated link with your user
-3. User opens link and shares their screen
-4. AI guides them through each step with voice instructions
-
-## API Endpoints
+Protected routes require `Authorization: Bearer <API_KEY>` header.
+When `API_KEY` env var is not set, auth is disabled (dev mode).
 
 ### tRPC Routes
 
-- `template.create` - Create a new template
-- `template.list` - List all templates
-- `template.get` - Get template by ID
-- `template.update` - Update a template
-- `template.delete` - Delete a template
-- `session.create` - Create a session from template
-- `session.getByToken` - Get session by share token
-- `session.start` - Mark session as active
-- `session.complete` - Mark session as complete
-- `recording.create` - Register a recording chunk
-- `recording.createFrameSample` - Register a frame sample
+| Route | Auth | Description |
+|-------|------|-------------|
+| `session.createProof` | 🔒 | Create proof session for a platform |
+| `session.getByToken` | Public | Get session by share token |
+| `session.start` | Public | Mark session as active |
+| `session.get` | 🔒 | Get session by ID |
+| `session.list` | 🔒 | List all sessions |
+| `session.create` | 🔒 | Create session from template ID |
+| `session.update` | 🔒 | Update session progress |
+| `session.complete` | 🔒 | Mark session as complete |
+| `session.getUploadUrl` | 🔒 | Get SAS URL for recording upload |
 
 ### WebSocket (`/ws/:token`)
 
-Messages from client:
-- `{ type: "frame", imageData: string }` - Send screen frame for analysis
-- `{ type: "requestHint" }` - Request a hint for current step
-- `{ type: "skipStep" }` - Skip to next step
-- `{ type: "ping" }` - Heartbeat
+**Client → Server:**
+| Message | Description |
+|---------|-------------|
+| `frame` | Screen capture frame (JPEG base64) |
+| `linkClicked` | User clicked a step link |
+| `requestHint` | Request a hint |
+| `skipStep` | Skip current step |
+| `ping` | Heartbeat |
 
-Messages from server:
-- `{ type: "connected", sessionId, currentStep, totalSteps, instruction }`
-- `{ type: "analyzing" }` - Frame analysis started
-- `{ type: "analysis", description, matchesSuccess, confidence }`
-- `{ type: "stepComplete", currentStep, totalSteps, nextInstruction }`
-- `{ type: "audio", text, audioData }` - Voice instruction (base64 MP3)
-- `{ type: "completed" }` - All steps done
-- `{ type: "error", message }`
+**Server → Client:**
+| Message | Description |
+|---------|-------------|
+| `connected` | Session initialized with current state |
+| `analyzing` | Frame analysis in progress |
+| `analysis` | Analysis result + extracted data |
+| `stepComplete` | Step advanced |
+| `completed` | All steps done + final extracted data |
+| `audio` | Voice instruction (base64 MP3) |
+| `instruction` | Text-only instruction (TTS fallback) |
+| `error` | Error message |
 
-### Storage Routes
+### Webhook (Optional)
 
-- `POST /storage/upload-url` - Get SAS URL for video upload
-- `POST /storage/frame-upload-url` - Get SAS URL for frame upload
-- `GET /storage/download-url/:key` - Get SAS URL for download
+When `WEBHOOK_URL` is set, a POST is sent on session completion:
+
+```json
+{
+  "event": "session.completed",
+  "sessionId": "uuid",
+  "platform": "instagram",
+  "extractedData": [{"label": "Handle", "value": "@username"}],
+  "completedAt": "2024-01-01T00:00:00.000Z"
+}
+```
+
+Optionally signed with HMAC-SHA256 via `WEBHOOK_SECRET` (header: `X-Webhook-Signature`).
+
+## Adding a New Platform
+
+1. Define a `ProofTemplate` in `packages/protocol/src/steps.ts`
+2. Register it in the `PROOF_TEMPLATES` record
+3. That's it — `createProof({ platform: "your-platform" })` works
+
+Each step supports:
+- `instruction` + `successCriteria` (for AI analysis)
+- `link` (navigation URL + label)
+- `extractionSchema` (typed data extraction with field names)
+- `requiresLinkClick` (gate analysis until user clicks)
+- `hints` (user-requested help)
+
+## Infrastructure
+
+All infrastructure is managed by Terraform in `infra/`.
+
+### Resources
+
+| Resource | Purpose | Configurable |
+|----------|---------|-------------|
+| Resource Group | Container for all resources | — |
+| App Service (B1) | Backend container host | — |
+| Container Registry | Docker image storage | — |
+| PostgreSQL Flexible | Database | `database_mode`: create / existing |
+| Storage Account | Blob storage for recordings | — |
+| Redis Cache | WebSocket session persistence | `redis_mode`: create / existing / none |
+| Application Insights | Telemetry + metrics | `appinsights_mode`: create / existing |
+| Key Vault | Secret management | — |
+| Static Web App | Frontend hosting (CDN) | — |
+| Speech Services | Azure TTS | — |
+
+### Secrets Management
+
+- API keys (OpenAI, Anthropic, Speech) → **Azure Key Vault** (referenced by App Service)
+- PostgreSQL password → **auto-generated** by Terraform, stored in Key Vault
+- All other config → Terraform variables
+
+### Deploying
+
+```bash
+# First time: bootstrap remote state
+cd infra/bootstrap && ./init.sh
+
+# Then uncomment backend block in infra/backend.tf and:
+cd infra
+terraform init -migrate-state
+terraform plan
+terraform apply
+```
+
+Per-environment config via tfvars:
+```bash
+terraform plan -var-file=prod.tfvars
+```
+
+### CI/CD
+
+- **Push to main** → CI (typecheck + tests) → Deploy backend (Docker → ACR → webhook → App Service) → Deploy frontend (build → SWA)
 
 ## Environment Variables
 
-### Required
+See `.env.example` for the complete list. Key variables:
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `AI_PROVIDER` | `anthropic` (default) or `azure` |
-
-### Anthropic Provider
-
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Claude API key for vision |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key for TTS |
-| `ELEVENLABS_VOICE_ID` | Voice ID (default: Rachel) |
-
-### Azure Provider
-
-| Variable | Description |
-|----------|-------------|
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
-| `AZURE_OPENAI_DEPLOYMENT_VISION` | GPT-4o deployment name |
-| `AZURE_SPEECH_ENDPOINT` | Azure Speech endpoint (optional) |
-| `AZURE_SPEECH_API_KEY` | Azure Speech API key (optional) |
-| `AZURE_SPEECH_VOICE_NAME` | Voice name (default: en-US-JennyNeural) |
-
-### Storage
-
-| Variable | Description |
-|----------|-------------|
-| `AZURE_STORAGE_CONNECTION_STRING` | Azure Storage connection string |
-| `AZURE_STORAGE_CONTAINER_NAME` | Container name (default: screenshare-recordings) |
-
-### Server
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | 3001 | Server port |
-| `CORS_ORIGIN` | http://localhost:3000 | Frontend origin |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `VISION_PROVIDER` | No | `azure` (default) or `anthropic` |
+| `TTS_PROVIDER` | No | `azure` (default) or `elevenlabs` |
+| `REDIS_URL` | No | Redis connection URL (omit for in-memory) |
+| `API_KEY` | No | API auth key (omit for dev mode) |
+| `WEBHOOK_URL` | No | POST on session completion |
+| `WEBHOOK_SECRET` | No | HMAC-SHA256 signing secret |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | No | Telemetry (omit to disable) |
 
 ## Development
 
-### Database Commands
-
 ```bash
-# Apply all pending migrations
-bun run db:migrate
-
-# Watch for changes in current.sql (dev)
-bun run db:watch
-
-# Reset database (wipes all data!)
-bun run db:reset
-```
-
-### Type Checking
-
-```bash
-bun run typecheck
-```
-
-### Testing
-
-```bash
-bun run test
-```
-
-## Deployment
-
-### Production Considerations
-
-1. **Database**: Use a managed PostgreSQL service (Neon, Azure Database for PostgreSQL, etc.)
-2. **Session State**: Replace in-memory Map with Redis for multi-instance
-3. **WebSocket**: Use a WebSocket-capable host (Railway, Azure App Service, etc.)
-4. **Frontend**: Deploy Next.js to Vercel or Azure Static Web Apps
-5. **HTTPS**: Required for `getDisplayMedia()` in production
-
-### Azure Deployment
-
-```bash
-# Using Azure Container Apps
-az containerapp up \
-  --name screenshare-guide \
-  --source . \
-  --env-vars DATABASE_URL=... AI_PROVIDER=azure ...
-```
-
-### Environment Variables for Production
-
-Ensure all sensitive environment variables are set in your deployment platform:
-
-```bash
-# Core
-DATABASE_URL=<production-postgres-url>
-CORS_ORIGIN=https://your-domain.com
-
-# AI Provider (choose one set)
-AI_PROVIDER=azure
-AZURE_OPENAI_ENDPOINT=https://...
-AZURE_OPENAI_API_KEY=<key>
-AZURE_OPENAI_DEPLOYMENT_VISION=gpt-4o
-
-# Storage
-AZURE_STORAGE_CONNECTION_STRING=<connection-string>
-AZURE_STORAGE_CONTAINER_NAME=screenshare-recordings
+bun run dev          # Start all services
+bun run typecheck    # Type check all packages
+bun run test         # Run all tests
+bun run db:migrate   # Apply migrations
+bun run db:watch     # Watch current.sql for changes
+bun run db:reset     # Reset database (destructive!)
 ```
 
 ## License
