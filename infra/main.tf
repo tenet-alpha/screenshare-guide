@@ -36,9 +36,10 @@ locals {
   )
 
   # Database URL: resolve from either created PG or external
+  # URL-encode the password to handle special characters (:, ?, @, etc.)
   database_url = (
     var.database_mode == "create"
-    ? "postgresql://${var.pg_admin_username}:${random_password.pg_admin[0].result}@${azurerm_postgresql_flexible_server.main[0].fqdn}:5432/screenshare?sslmode=require"
+    ? "postgresql://${var.pg_admin_username}:${urlencode(random_password.pg_admin[0].result)}@${azurerm_postgresql_flexible_server.main[0].fqdn}:5432/screenshare?sslmode=require"
     : var.existing_database_url
   )
 

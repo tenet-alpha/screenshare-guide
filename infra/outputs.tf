@@ -38,6 +38,16 @@ output "postgresql_database_url" {
   sensitive = true
 }
 
+output "postgresql_database_url_raw" {
+  description = "Database URL with raw (non-encoded) password — for tools that handle encoding themselves"
+  value = (
+    var.database_mode == "create"
+    ? "postgresql://${var.pg_admin_username}:${random_password.pg_admin[0].result}@${azurerm_postgresql_flexible_server.main[0].fqdn}:5432/screenshare?sslmode=require"
+    : var.existing_database_url
+  )
+  sensitive = true
+}
+
 output "storage_account_name" {
   value = azurerm_storage_account.main.name
 }
