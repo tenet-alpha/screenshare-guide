@@ -12,6 +12,12 @@ import {
   TTS_STUCK_TIMEOUT_MS,
 } from "@screenshare-guide/protocol";
 import type { ProofStep } from "@screenshare-guide/protocol";
+import {
+  trackVisionAnalysis,
+  trackTTSGeneration,
+  trackSessionEvent,
+  trackVerificationComplete,
+} from "./lib/telemetry";
 import { clientMessageSchema } from "./websocket-schemas";
 
 // Session state machine
@@ -175,6 +181,10 @@ export const websocketHandler = new Elysia()
           currentStep: session.current_step,
         });
 
+        trackSessionEvent("connected", session.id, {
+          totalSteps: String(steps.length),
+        });
+
         // Send initial state
         ws.send(
           JSON.stringify({
@@ -271,7 +281,11 @@ export const websocketHandler = new Elysia()
     // Handle WebSocket close
     close(ws) {
       const { token } = ws.data.params;
+      const state = activeSessions.get(token);
       logWebSocket("close", token);
+      if (state) {
+        trackSessionEvent("disconnected", state.sessionId);
+      }
       activeSessions.delete(token);
       messageRateLimit.delete(token);
     },
@@ -413,7 +427,14 @@ async function handleFrame(
       schema
     );
 
-    logAI("vision", "analyzeFrame", Date.now() - startTime);
+    const analysisDuration = Date.now() - startTime;
+    logAI("vision", "analyzeFrame", analysisDuration);
+    trackVisionAnalysis(
+      analysisDuration,
+      analysis.matchesSuccessCriteria,
+      state.currentStep,
+      analysis.confidence
+    );
 
     // Filter extracted data to only include fields from known schemas
     const allKnownFields = new Set(
@@ -494,6 +515,15 @@ async function handleFrame(
             extractedData: state.allExtractedData,
           });
 
+          trackSessionEvent("completed", state.sessionId, {
+            fieldsExtracted: String(state.allExtractedData.length),
+          });
+          trackVerificationComplete(
+            state.sessionId,
+            "instagram", // TODO: read from template when multi-platform
+            state.allExtractedData.length
+          );
+
           ws.send(JSON.stringify({
             type: "completed",
             message: "All steps completed!",
@@ -557,7 +587,9 @@ async function handleFrame(
       state.status = "waiting";
     }
   } catch (error) {
-    logAI("vision", "analyzeFrame", Date.now() - startTime, error as Error);
+    const errorDuration = Date.now() - startTime;
+    logAI("vision", "analyzeFrame", errorDuration, error as Error);
+    trackVisionAnalysis(errorDuration, false, state.currentStep);
     state.status = "waiting";
     ws.send(JSON.stringify({ type: "error", message: "Analysis failed" }));
   }
@@ -622,7 +654,9 @@ async function sendInstruction(ws: any, text: string, state: SessionState) {
   try {
     const audioBase64 = await generateSpeech(text);
 
-    logAI("tts", "generateSpeech", Date.now() - startTime);
+    const ttsDuration = Date.now() - startTime;
+    logAI("tts", "generateSpeech", ttsDuration);
+    trackTTSGeneration(ttsDuration, true);
 
     ws.send(
       JSON.stringify({
@@ -632,7 +666,9 @@ async function sendInstruction(ws: any, text: string, state: SessionState) {
       })
     );
   } catch (error) {
-    logAI("tts", "generateSpeech", Date.now() - startTime, error as Error);
+    const ttsErrorDuration = Date.now() - startTime;
+    logAI("tts", "generateSpeech", ttsErrorDuration, error as Error);
+    trackTTSGeneration(ttsErrorDuration, false);
     // Fall back to text only
     ws.send(
       JSON.stringify({

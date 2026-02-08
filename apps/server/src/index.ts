@@ -1,3 +1,7 @@
+// Initialize telemetry FIRST (before other imports for auto-instrumentation)
+import { initTelemetry } from "./lib/telemetry";
+initTelemetry();
+
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { trpcHandler } from "./trpc-adapter";

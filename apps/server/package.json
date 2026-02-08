@@ -17,6 +17,7 @@
     "@screenshare-guide/protocol": "workspace:*",
     "@screenshare-guide/trpc": "workspace:*",
     "@trpc/server": "^10.45.0",
+    "applicationinsights": "^3.13.0",
     "elysia": "^1.0.3",
     "nanoid": "^5.0.4",
     "pino": "^9.0.0",
