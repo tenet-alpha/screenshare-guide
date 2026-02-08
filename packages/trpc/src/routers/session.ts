@@ -151,7 +151,7 @@ export const sessionRouter = router({
    * Accepts an optional platform (default "instagram").
    * Finds or creates the template, then creates a session with 24h expiry.
    */
-  createProof: authenticatedProcedure
+  createProof: publicProcedure
     .input(z.object({ platform: z.string().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
     const platform = input?.platform ?? "instagram";
